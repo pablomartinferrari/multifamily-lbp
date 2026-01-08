@@ -1,0 +1,123 @@
+@import '~@fluentui/react/dist/sass/References.scss';
+
+.container {
+  padding: 16px 0;
+}
+
+.sectionTitle {
+  font-weight: 600;
+  color: $ms-color-themePrimary;
+}
+
+.card {
+  border: 2px solid $ms-color-neutralTertiary;
+  border-radius: 8px;
+  padding: 16px;
+  background: $ms-color-neutralLighterAlt;
+  transition: all 0.2s ease;
+
+  &.accepted {
+    border-color: $ms-color-green;
+    background: rgba(16, 124, 16, 0.05);
+  }
+
+  &.rejected {
+    border-color: $ms-color-neutralTertiary;
+    background: $ms-color-neutralLighter;
+    opacity: 0.8;
+  }
+}
+
+.originalLabel {
+  font-size: 12px;
+  color: $ms-color-neutralSecondary;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.originalName {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 14px;
+  color: $ms-color-neutralPrimary;
+  background: $ms-color-neutralLighter;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.arrow {
+  font-size: 20px;
+  color: $ms-color-themePrimary;
+  font-weight: bold;
+}
+
+.confidenceLabel {
+  font-size: 12px;
+  color: $ms-color-neutralSecondary;
+}
+
+.confidenceBadge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-block;
+}
+
+.highConfidence {
+  background: rgba(16, 124, 16, 0.15);
+  color: #0b6a0b;
+}
+
+.mediumConfidence {
+  background: rgba(255, 185, 0, 0.2);
+  color: #8a6914;
+}
+
+.lowConfidence {
+  background: rgba(168, 0, 0, 0.1);
+  color: #a80000;
+}
+
+.cacheBadge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(0, 120, 212, 0.15);
+  color: $ms-color-themePrimary;
+}
+
+.acceptBtn {
+  color: $ms-color-green;
+  background: rgba(16, 124, 16, 0.1);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+
+  &:hover {
+    background: rgba(16, 124, 16, 0.2);
+    color: #0b6a0b;
+  }
+
+  i {
+    font-size: 18px;
+  }
+}
+
+.rejectBtn {
+  color: $ms-color-neutralSecondary;
+  background: $ms-color-neutralLighter;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+
+  &:hover {
+    background: rgba(168, 0, 0, 0.1);
+    color: $ms-color-redDark;
+  }
+
+  i {
+    font-size: 18px;
+  }
+}

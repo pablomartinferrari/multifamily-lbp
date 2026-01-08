@@ -1,0 +1,25 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "whichFolder": "subdir",
+    "solutionName": "xrf-processor",
+    "componentType": "webpart",
+    "template": "react",
+    "componentName": "XrfProcessor",
+    "componentDescription": "XRF Lead Paint Inspection Data Processor",
+    "plusBeta": false,
+    "isCreatingSolution": true,
+    "nodeVersion": "18.20.8",
+    "sdksVersions": {
+      "@microsoft/microsoft-graph-client": "3.0.2",
+      "@microsoft/teams-js": "2.24.0"
+    },
+    "version": "1.20.0",
+    "libraryName": "xrf-processor",
+    "libraryId": "5ac8b540-beb3-430e-a7f9-692ada01fd42",
+    "environment": "spo",
+    "packageManager": "npm",
+    "solutionShortDescription": "xrf-processor description",
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false
+  }
+}

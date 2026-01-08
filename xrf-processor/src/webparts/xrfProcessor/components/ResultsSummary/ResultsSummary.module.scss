@@ -1,0 +1,196 @@
+@import '~@fluentui/react/dist/sass/References.scss';
+
+.container {
+  padding: 20px;
+  background: $ms-color-white;
+  border-radius: 8px;
+}
+
+.header {
+  border-bottom: 1px solid $ms-color-neutralLight;
+  padding-bottom: 16px;
+  margin-bottom: 8px;
+}
+
+.jobTitle {
+  color: $ms-color-themePrimary;
+  font-weight: 600;
+}
+
+.metadata {
+  margin-top: 8px;
+  color: $ms-color-neutralSecondary;
+}
+
+.metaIcon {
+  margin-right: 4px;
+  font-size: 12px;
+}
+
+.pivot {
+  margin-top: 8px;
+}
+
+.datasetContainer {
+  padding: 16px 0;
+}
+
+// Stats Cards
+.statsRow {
+  margin-bottom: 8px;
+}
+
+.statCard {
+  background: $ms-color-neutralLighterAlt;
+  border: 1px solid $ms-color-neutralLight;
+  border-radius: 8px;
+  padding: 16px 24px;
+  text-align: center;
+  min-width: 120px;
+
+  &.positiveCard {
+    background: rgba(168, 0, 0, 0.05);
+    border-color: rgba(168, 0, 0, 0.2);
+
+    .statValue {
+      color: #a80000;
+    }
+  }
+
+  &.negativeCard {
+    background: rgba(16, 124, 16, 0.05);
+    border-color: rgba(16, 124, 16, 0.2);
+
+    .statValue {
+      color: #107c10;
+    }
+  }
+}
+
+.statValue {
+  font-size: 28px;
+  font-weight: 700;
+  color: $ms-color-themePrimary;
+  display: block;
+}
+
+.statLabel {
+  font-size: 12px;
+  color: $ms-color-neutralSecondary;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+// Sections
+.section {
+  background: $ms-color-neutralLighterAlt;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.sectionTitle {
+  font-weight: 600;
+  color: $ms-color-neutralPrimary;
+}
+
+.sectionSubtitle {
+  color: $ms-color-neutralSecondary;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.sectionIcon {
+  font-size: 20px;
+  color: $ms-color-themePrimary;
+}
+
+.sectionIconWarning {
+  font-size: 20px;
+  color: #d83b01;
+}
+
+.infoIcon {
+  font-size: 14px;
+  color: $ms-color-neutralSecondary;
+  cursor: help;
+}
+
+.warningBar {
+  margin-bottom: 12px;
+}
+
+// Table
+.table {
+  background: $ms-color-white;
+  border-radius: 4px;
+
+  :global(.ms-DetailsHeader) {
+    padding-top: 0;
+  }
+
+  :global(.ms-DetailsRow) {
+    border-bottom: 1px solid $ms-color-neutralLighter;
+  }
+}
+
+// Result Badges
+.positiveBadge {
+  background: rgba(168, 0, 0, 0.1);
+  color: #a80000;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-weight: 600;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.negativeBadge {
+  background: rgba(16, 124, 16, 0.1);
+  color: #107c10;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-weight: 600;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badgeIcon {
+  font-size: 12px;
+}
+
+// Count displays
+.positiveCount {
+  color: #a80000;
+  font-weight: 600;
+}
+
+.negativeCount {
+  color: #107c10;
+  font-weight: 600;
+}
+
+.percentValue {
+  font-family: 'Consolas', monospace;
+}
+
+// View button for non-uniform
+.viewButton {
+  background: transparent;
+  border: 1px solid $ms-color-themePrimary;
+  color: $ms-color-themePrimary;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: $ms-color-themePrimary;
+    color: $ms-color-white;
+  }
+}

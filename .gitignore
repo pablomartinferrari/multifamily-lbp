@@ -1,0 +1,23 @@
+# SharePoint Scripts - Sensitive Configuration
+scripts/sharepoint/config.ps1
+scripts/sharepoint/app-registration-output.txt
+
+# Certificate files (contain private keys)
+*.pfx
+*.cer
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+
+# Node modules (redundant with xrf-processor/.gitignore but good to have)
+node_modules/

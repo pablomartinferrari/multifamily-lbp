@@ -1,0 +1,40 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "xrf-processor-client-side-solution",
+    "id": "5ac8b540-beb3-430e-a7f9-692ada01fd42",
+    "version": "1.0.0.0",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "developer": {
+      "name": "Multifamily LBP",
+      "websiteUrl": "",
+      "privacyUrl": "",
+      "termsOfUseUrl": "",
+      "mpnId": ""
+    },
+    "metadata": {
+      "shortDescription": {
+        "default": "XRF Lead Paint Inspection Data Processor"
+      },
+      "longDescription": {
+        "default": "Process XRF lead paint inspection data with AI-powered component normalization, HUD/EPA compliant summaries, and SharePoint storage integration."
+      },
+      "screenshotPaths": [],
+      "videoUrl": "",
+      "categories": []
+    },
+    "features": [
+      {
+        "title": "XRF Processor",
+        "description": "Activates the XRF Lead Paint Processor web part for processing inspection data.",
+        "id": "3f86ab5f-294b-4a3f-9db8-bce098d4a795",
+        "version": "1.0.0.0"
+      }
+    ]
+  },
+  "paths": {
+    "zippedPackage": "solution/xrf-processor.sppkg"
+  }
+}
