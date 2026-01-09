@@ -12,11 +12,11 @@
   "preconfiguredEntries": [{
     "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
     "group": { "default": "Advanced" },
-    "title": { "default": "XRF Lead Paint Processor" },
-    "description": { "default": "Process XRF lead paint inspection data with AI-powered component normalization and HUD/EPA compliant summaries." },
+    "title": { "default": "LBP Multifamily Convert" },
+    "description": { "default": "LBP Multifamily conversion tool for XRF lead paint inspection data" },
     "officeFabricIconFontName": "TestBeaker",
     "properties": {
-      "description": "XRF Lead Paint Processor",
+      "description": "LBP Multifamily Convert",
       "openAIProvider": "openai",
       "openAIApiKey": "",
       "openAIModel": "gpt-4o-mini",

@@ -442,6 +442,8 @@ export const AllShotsReport: React.FC<IAllShotsReportProps> = ({
           layoutMode={DetailsListLayoutMode.justified}
           selectionMode={SelectionMode.none}
           getKey={(item: IXrfReading) => item.readingId}
+          setKey="all-shots-grid"
+          onShouldVirtualize={() => false}
           styles={listStyles}
         />
       </div>

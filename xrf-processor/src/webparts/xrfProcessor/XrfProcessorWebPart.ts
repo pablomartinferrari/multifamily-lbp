@@ -39,7 +39,6 @@ export interface IXrfProcessorWebPartProps {
 
 export default class XrfProcessorWebPart extends BaseClientSideWebPart<IXrfProcessorWebPartProps> {
 
-  private _isDarkTheme: boolean = false;
   private _environmentMessage: string = '';
   private _sp: SPFI = undefined!;
 
@@ -49,7 +48,6 @@ export default class XrfProcessorWebPart extends BaseClientSideWebPart<IXrfProce
       {
         sp: this._sp,
         description: this.properties.description,
-        isDarkTheme: this._isDarkTheme,
         environmentMessage: this._environmentMessage,
         hasTeamsContext: !!this.context.sdks.microsoftTeams,
         userDisplayName: this.context.pageContext.user.displayName
@@ -138,7 +136,6 @@ export default class XrfProcessorWebPart extends BaseClientSideWebPart<IXrfProce
       return;
     }
 
-    this._isDarkTheme = !!currentTheme.isInverted;
     const {
       semanticColors
     } = currentTheme;

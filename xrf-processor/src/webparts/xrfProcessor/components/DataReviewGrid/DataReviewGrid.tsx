@@ -22,6 +22,7 @@ import {
   TooltipHost,
   mergeStyleSets,
 } from "@fluentui/react";
+import * as XLSX from "xlsx";
 import { IXrfReading, LEAD_POSITIVE_THRESHOLD } from "../../models/IXrfReading";
 
 // Styles
@@ -85,9 +86,22 @@ const styles = mergeStyleSets({
   changedRow: {
     backgroundColor: "#fff4ce",
   },
+  unknownRow: {
+    backgroundColor: "#fde7e9", // Light red/pink for highlighting errors
+  },
   gridContainer: {
-    maxHeight: "500px",
-    overflow: "auto",
+    maxHeight: "700px",
+    overflowY: "auto",
+    overflowX: "hidden",
+    border: "1px solid #edebe9",
+  },
+  footer: {
+    marginTop: "12px",
+    padding: "8px",
+    borderTop: "1px solid #edebe9",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
 });
 
@@ -98,6 +112,8 @@ export interface IDataReviewGridProps {
   onReadingsChange: (readings: IXrfReading[]) => void;
   /** Callback to regenerate summaries */
   onRegenerateSummary: () => void;
+  /** Callback to re-run AI normalization */
+  onReNormalize: () => void;
   /** Callback to go back to upload */
   onCancel: () => void;
   /** Whether summary regeneration is in progress */
@@ -115,6 +131,7 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
   readings,
   onReadingsChange,
   onRegenerateSummary,
+  onReNormalize,
   onCancel,
   isProcessing = false,
   areaType,
@@ -293,6 +310,31 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
     );
   };
 
+  const isFormValid = readings.length > 0;
+
+  // Export to Excel
+  const handleExportExcel = (): void => {
+    const exportData = readings.map((r) => ({
+      "Reading #": r.rawRow?.originalReadingId || r.readingId,
+      "Component": r.normalizedComponent || r.component,
+      "Unit #": r.unitNumber || "",
+      "Room Type": r.roomType || "",
+      "Room #": r.roomNumber || "",
+      "Side": r.side || "",
+      "Substrate": r.substrate || "",
+      "Color": r.color,
+      "PbC (mg/cm²)": r.leadContent,
+      "Result": r.isPositive ? "POSITIVE" : "Negative",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "XRF Data");
+
+    const timestamp = new Date().toISOString().split("T")[0];
+    XLSX.writeFile(workbook, `XRF_Data_Review_${areaType}_${timestamp}.xlsx`);
+  };
+
   // Column definitions
   const columns: IColumn[] = [
     {
@@ -302,6 +344,11 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
       minWidth: 60,
       maxWidth: 80,
       isResizable: true,
+      onRender: (item: IXrfReading) => {
+        // Display the original ID from the machine, not our internal unique key
+        const originalId = item.rawRow?.originalReadingId || item.readingId;
+        return <span>{String(originalId)}</span>;
+      }
     },
     {
       key: "component",
@@ -310,6 +357,7 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
       minWidth: 100,
       maxWidth: 150,
       isResizable: true,
+      onRender: (item: IXrfReading) => renderEditableCell(item, "component", item.component),
     },
     {
       key: "normalizedComponent",
@@ -477,6 +525,12 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
           )}
         </div>
         <div className={styles.actionSection}>
+          <DefaultButton 
+            text="Export to Excel" 
+            iconProps={{ iconName: "ExcelDocument" }} 
+            onClick={handleExportExcel} 
+            disabled={!isFormValid || isProcessing}
+          />
           {selectedItems.length > 0 && (
             <DefaultButton
               text={`Bulk Edit (${selectedItems.length})`}
@@ -488,6 +542,12 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
             />
           )}
           <DefaultButton text="Cancel" onClick={onCancel} disabled={isProcessing} />
+          <DefaultButton
+            text="Re-run AI Normalization"
+            iconProps={{ iconName: "Robot" }}
+            onClick={onReNormalize}
+            disabled={isProcessing || readings.length === 0}
+          />
           <PrimaryButton
             text={stats.changedCount > 0 ? `Regenerate Summary (${stats.changedCount} changes)` : "Generate Summary"}
             iconProps={{ iconName: "Refresh" }}
@@ -515,12 +575,18 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
           selectionMode={SelectionMode.multiple}
           selectionPreservedOnEmptyClick
           getKey={(item: IXrfReading) => item.readingId}
+          setKey="data-review-grid"
+          onShouldVirtualize={() => false}
           onRenderRow={(props?: IDetailsRowProps) => {
             if (!props) return null;
             const item = props.item as IXrfReading;
             const isChanged = changedReadingIds.has(item.readingId);
+            
+            let rowClass = undefined;
+            if (isChanged) rowClass = styles.changedRow;
+
             return (
-              <div className={isChanged ? styles.changedRow : undefined}>
+              <div className={rowClass}>
                 <DetailsRow {...props} />
               </div>
             );
@@ -528,12 +594,17 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
         />
       </div>
 
-      {/* Filtered results message */}
-      {filteredReadings.length < readings.length && (
-        <Text variant="small" style={{ color: "#605e5c", marginTop: 8 }}>
-          Showing {filteredReadings.length} of {readings.length} readings
+      {/* Grid Footer */}
+      <div className={styles.footer}>
+        <Text variant="small" style={{ color: "#605e5c" }}>
+          Showing {filteredReadings.length} of {readings.length} total readings
         </Text>
-      )}
+        {filteredReadings.length < readings.length && (
+          <Text variant="small" style={{ color: "#0078d4", fontWeight: 600 }}>
+            (Filtered)
+          </Text>
+        )}
+      </div>
 
       {/* Confirm Dialog */}
       <Dialog
@@ -545,6 +616,9 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
           subText: stats.changedCount > 0
             ? `You have ${stats.changedCount} modified readings. The summary will be recalculated with your changes.`
             : "Generate the HUD/EPA summary with the current data?",
+        }}
+        modalProps={{
+          styles: { main: { minWidth: 600 } }
         }}
       >
         <DialogFooter>

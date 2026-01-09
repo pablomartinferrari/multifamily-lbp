@@ -43,6 +43,9 @@ const styles = mergeStyleSets({
     color: "#605e5c",
     fontSize: "12px",
   },
+  optionLabel: {
+    marginLeft: "1.5rem",
+  },
 });
 
 export type ConflictResolution = "replace" | "merge" | "cancel";
@@ -79,7 +82,7 @@ export const UploadConflictDialog: React.FC<IUploadConflictDialogProps> = ({
       key: "replace",
       text: "Replace existing data",
       onRenderLabel: (props) => (
-        <Stack>
+        <Stack className={styles.optionLabel}>
           <Text>{props?.text}</Text>
           <Text className={styles.optionDescription}>
             Remove all previous readings and use only the new file
@@ -91,7 +94,7 @@ export const UploadConflictDialog: React.FC<IUploadConflictDialogProps> = ({
       key: "merge",
       text: "Merge with existing data",
       onRenderLabel: (props) => (
-        <Stack>
+        <Stack className={styles.optionLabel}>
           <Text>{props?.text}</Text>
           <Text className={styles.optionDescription}>
             Combine readings from both files (new readings will be added, duplicates will be updated)
@@ -134,7 +137,7 @@ export const UploadConflictDialog: React.FC<IUploadConflictDialogProps> = ({
       }}
       modalProps={{
         isBlocking: true,
-        styles: { main: { maxWidth: 500 } },
+        styles: { main: { minWidth: '600px !important', maxWidth: '800px !important' } },
       }}
     >
       <Stack tokens={{ childrenGap: 16 }}>

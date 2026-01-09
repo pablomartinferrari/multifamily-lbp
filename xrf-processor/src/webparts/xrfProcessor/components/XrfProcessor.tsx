@@ -59,7 +59,7 @@ interface IJobMetadata {
 // Main Component
 // ============================================
 const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
-  const { isDarkTheme, hasTeamsContext, userDisplayName, sp } = props;
+  const { hasTeamsContext, userDisplayName, sp } = props;
 
   // Services (memoized to prevent recreation)
   const parserService = React.useMemo(() => new ExcelParserService(), []);
@@ -163,11 +163,16 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
         updateState("PARSING", baseProgress + stageProgress, `Parsing: ${processed}/${total} rows...`);
       });
 
-      if (!parseResult.success || parseResult.readings.length === 0) {
+      if (parseResult.readings.length === 0) {
         const errorMsg = parseResult.errors.length > 0
           ? parseResult.errors.map((e) => e.message).join("; ")
           : "No valid readings found in file";
         throw new Error(errorMsg);
+      }
+
+      // If there were some errors but we have readings, just log them as warnings
+      if (parseResult.errors.length > 0) {
+        console.warn("Parse errors (some rows skipped):", parseResult.errors);
       }
 
       console.log(`Parsed ${parseResult.readings.length} readings from ${parseResult.metadata.sheetName}`);
@@ -333,6 +338,33 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     setReadings(updatedReadings);
   };
 
+  const handleReNormalize = async (): Promise<void> => {
+    try {
+      updateState("NORMALIZING", 45, "Re-normalizing updated component names...");
+      const normalizerService = getComponentNormalizerService();
+      const componentNames = Array.from(new Set(readings.map((r) => r.component)));
+
+      const normalizedComponents = await normalizerService.normalizeComponents(
+        componentNames,
+        (progress) => {
+          const normalizeProgress = 45 + Math.round((progress.processed / progress.total) * 15);
+          updateState("NORMALIZING", normalizeProgress, progress.message);
+        }
+      );
+
+      setNormalizations(normalizedComponents);
+      updateState("REVIEWING", 60, "Review AI normalization suggestions...");
+    } catch (error) {
+      console.error("Re-normalization error:", error);
+      updateState(
+        "ERROR",
+        0,
+        "Re-normalization failed",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  };
+
   const handleGenerateSummary = async (): Promise<void> => {
     if (!jobMetadata) {
       updateState("ERROR", 0, "Missing job metadata", "Job metadata not found");
@@ -440,6 +472,7 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
         readings={readings}
         onReadingsChange={handleReadingsChange}
         onRegenerateSummary={handleGenerateSummary}
+        onReNormalize={handleReNormalize}
         onCancel={handleCancelEditing}
         isProcessing={false}
         areaType={jobMetadata.areaType}
@@ -472,6 +505,10 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     );
   };
 
+  const handleBackToEdit = (): void => {
+    updateState("EDITING", 70, "Review and edit data before generating summary...");
+  };
+
   const renderComplete = (): JSX.Element | null => {
     if (state.step !== "COMPLETE" || !summary) {
       return null;
@@ -492,7 +529,12 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
           areaType={jobMetadata?.areaType}
         />
 
-        <Stack horizontal tokens={{ childrenGap: 8 }}>
+        <Stack horizontal tokens={{ childrenGap: 12 }}>
+          <DefaultButton
+            text="Back to Edit Data"
+            iconProps={{ iconName: "Edit" }}
+            onClick={handleBackToEdit}
+          />
           <PrimaryButton
             text="Process Another File"
             iconProps={{ iconName: "Add" }}
@@ -510,16 +552,7 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     <section className={`${styles.xrfProcessor} ${hasTeamsContext ? styles.teams : ""}`}>
       {/* Header */}
       <div className={styles.welcome}>
-        <img
-          alt=""
-          src={
-            isDarkTheme
-              ? require("../assets/welcome-dark.png")
-              : require("../assets/welcome-light.png")
-          }
-          className={styles.welcomeImage}
-        />
-        <h2>XRF Lead Paint Processor</h2>
+        <h2>LBP Multifamily Convert</h2>
         <Text variant="medium">Welcome, {userDisplayName}!</Text>
       </div>
 

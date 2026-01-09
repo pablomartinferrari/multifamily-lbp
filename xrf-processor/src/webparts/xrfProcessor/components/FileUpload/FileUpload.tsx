@@ -30,7 +30,7 @@ const areaTypeOptions: IDropdownOption[] = [
 ];
 
 /** Accepted file extensions */
-const ACCEPTED_EXTENSIONS = [".xlsx", ".csv"];
+const ACCEPTED_EXTENSIONS = [".xlsx"];
 
 export const FileUpload: React.FC<IFileUploadProps> = ({
   onSubmit,
@@ -57,7 +57,7 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
     );
 
     if (!hasValidExtension) {
-      setError("Please select an Excel (.xlsx) or CSV (.csv) file");
+      setError("Please select an Excel (.xlsx) file");
       return;
     }
 
@@ -112,8 +112,7 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
   const isFormValid = file && jobNumber.trim();
 
   const getFileIcon = (): string => {
-    if (!file) return "Upload";
-    return file.name.toLowerCase().endsWith(".csv") ? "TextDocument" : "ExcelDocument";
+    return "ExcelDocument";
   };
 
   return (
@@ -161,7 +160,7 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
               Drag & drop file here or click to browse
             </Text>
             <Text className={styles.dropZoneHint}>
-              Accepts .xlsx and .csv files
+              Accepts .xlsx files
             </Text>
           </Stack>
         )}

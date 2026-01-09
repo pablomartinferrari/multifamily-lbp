@@ -64,18 +64,20 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
 
   // Lead content variations (mg/cm²)
   leadContent: [
+    "PbC",
+    "PbC (mg/cm²)",
+    "PbC (mg/cm2)",
     "Lead Content",
     "Lead (mg/cm²)",
     "Lead (mg/cm2)",
     "Lead",
     "Pb",
     "Pb Content",
-    "Result",
-    "XRF Result",
     "Lead Concentration",
     "mg/cm²",
     "mg/cm2",
-    "PbC",
+    "Result",
+    "XRF Result",
     "Lead Result",
     "Pb (mg/cm²)",
   ],
@@ -131,6 +133,7 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
   // Substrate variations
   substrate: [
     "Substrate",
+    "Subtrate", // Common typo
     "Surface",
     "Material",
     "Substrate Type",

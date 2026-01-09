@@ -107,7 +107,7 @@ export class ExcelParserService {
       if (onProgress) onProgress(0, 100, "reading");
 
       // Read workbook
-      const workbook = XLSX.read(fileBuffer, { type: "array" });
+      const workbook = XLSX.read(fileBuffer, { type: "array", cellDates: true });
 
       // Get first sheet (or could make configurable)
       const sheetName = workbook.SheetNames[0];
@@ -124,25 +124,83 @@ export class ExcelParserService {
       const sheet = workbook.Sheets[sheetName];
 
       // Convert to JSON with headers
-      const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-        sheet,
-        {
-          defval: "", // Default value for empty cells
-        }
-      );
+      // We read it as a 2D array first to find the header row
+      const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, {
+        header: 1, // Get as 2D array
+        defval: "",
+      });
 
-      if (jsonData.length === 0) {
+      if (!rawData || rawData.length === 0) {
         return {
           success: false,
           readings: [],
-          errors: [{ row: 0, message: "No data rows found in worksheet" }],
+          errors: [{ row: 0, message: "No data found in worksheet" }],
           warnings: [],
           metadata: this.createEmptyMetadata(sheetName),
         };
       }
 
-      // Get headers from first row
-      const headers = Object.keys(jsonData[0]);
+      // Find the header row (sometimes row 1 is just a title like "All Shots")
+      let headerRowIndex = 0;
+      let headers: string[] = [];
+
+      for (let i = 0; i < Math.min(rawData.length, 5); i++) {
+        const row = rawData[i];
+        if (!row || !Array.isArray(row)) continue;
+
+        // Count how many of our known column names match this row
+        const matchCount = row.filter((cell) => {
+          if (typeof cell !== "string") return false;
+          const val = cell.toLowerCase().trim();
+          return (
+            DEFAULT_COLUMN_MAPPING.readingId.some((n) => n.toLowerCase() === val) ||
+            DEFAULT_COLUMN_MAPPING.component.some((n) => n.toLowerCase() === val) ||
+            DEFAULT_COLUMN_MAPPING.leadContent.some((n) => n.toLowerCase() === val)
+          );
+        }).length;
+
+        if (matchCount >= 2) {
+          // Found it!
+          headerRowIndex = i;
+          headers = row.map((h) => String(h || "").trim());
+          break;
+        }
+      }
+
+      // If we didn't find a clear header row, assume row 0 but warn
+      if (headers.length === 0) {
+        headers = rawData[0].map((h: any) => String(h || "").trim());
+        warnings.push("Could not clearly identify header row. Assuming first row contains headers.");
+      } else if (headerRowIndex > 0) {
+        warnings.push(`Detected header row at row ${headerRowIndex + 1} (skipped ${headerRowIndex} title row(s))`);
+      }
+
+      // Now convert the rest of the data to objects using the detected headers
+      const jsonData: Record<string, any>[] = [];
+      for (let i = headerRowIndex + 1; i < rawData.length; i++) {
+        const rowData = rawData[i];
+        if (!rowData || !Array.isArray(rowData)) continue;
+
+        const obj: Record<string, any> = {};
+        let hasData = false;
+        for (let j = 0; j < headers.length; j++) {
+          if (headers[j]) {
+            obj[headers[j]] = rowData[j];
+            if (rowData[j] !== undefined && rowData[j] !== "") hasData = true;
+          }
+        }
+        if (hasData) jsonData.push(obj);
+      }
+
+      if (jsonData.length === 0) {
+        return {
+          success: false,
+          readings: [],
+          errors: [{ row: 0, message: "No data rows found below headers" }],
+          warnings: [],
+          metadata: this.createEmptyMetadata(sheetName),
+        };
+      }
 
       // Detect column mappings (static or AI)
       let detectedColumns: Record<string, string>;
@@ -216,16 +274,20 @@ export class ExcelParserService {
       if (onProgress) onProgress(0, jsonData.length, "parsing");
 
       // Parse each row with progress updates
-      let rowNumber = 2; // Excel rows start at 1, header is row 1
+      let rowNumber = headerRowIndex + 2; // Excel rows start at 1, header is at headerRowIndex + 1
+      let calibrationCount = 0;
+
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
-        const parseResult = this.parseRow(row, rowNumber, detectedColumns);
+        const parseResult = this.parseRow(row, rowNumber, detectedColumns, i);
 
-        if (parseResult.reading) {
+        if (parseResult.isCalibration) {
+          calibrationCount++;
+        } else if (parseResult.isJunk) {
+          // Just ignore
+        } else if (parseResult.reading) {
           readings.push(parseResult.reading);
-        }
-
-        if (parseResult.error) {
+        } else if (parseResult.error) {
           errors.push(parseResult.error);
         }
 
@@ -244,6 +306,10 @@ export class ExcelParserService {
 
       // Final progress update
       if (onProgress) onProgress(jsonData.length, jsonData.length, "parsing");
+
+      if (calibrationCount > 0) {
+        warnings.push(`Filtered out ${calibrationCount} calibration/non-component reading(s).`);
+      }
 
       return {
         success: errors.length === 0,
@@ -356,92 +422,80 @@ export class ExcelParserService {
   private parseRow(
     row: Record<string, unknown>,
     rowNumber: number,
-    columns: Record<string, string>
-  ): { reading?: IXrfReading; error?: IParseError; warning?: string } {
+    columns: Record<string, string>,
+    rowIndex: number
+  ): { reading?: IXrfReading; error?: IParseError; warning?: string; isCalibration?: boolean; isJunk?: boolean } {
     try {
       // Extract required fields
-      const readingId = String(row[columns.readingId] || "").trim();
-      const component = String(row[columns.component] || "").trim();
+      const rawReadingId = String(row[columns.readingId] || "").trim();
+      const rawComponent = String(row[columns.component] || "").trim();
       const color = String(row[columns.color] || "").trim();
       const leadContentRaw = row[columns.leadContent];
+      
+      // Extract location info to check if row is empty junk
+      const roomType = columns.roomType ? String(row[columns.roomType] || "").trim() : "";
+      const roomNumber = columns.roomNumber ? String(row[columns.roomNumber] || "").trim() : "";
+      const substrate = columns.substrate ? String(row[columns.substrate] || "").trim() : "";
 
-      // Validate required fields
-      if (!readingId) {
-        return {
-          error: {
-            row: rowNumber,
-            column: columns.readingId,
-            message: "Missing reading ID",
-          },
-        };
-      }
-      if (!component) {
-        return {
-          error: {
-            row: rowNumber,
-            column: columns.component,
-            message: "Missing component",
-          },
-        };
+      // 1. Detect explicit calibration readings
+      if (this.isCalibrationRow(rawComponent, leadContentRaw, rawReadingId)) {
+        return { isCalibration: true };
       }
 
-      // Color can be empty but we'll warn
-      let warning: string | undefined;
-      if (!color) {
-        warning = `Row ${rowNumber}: Missing color value`;
-      }
-
-      // Parse lead content
+      // 2. Parse lead content early to help with junk detection
       const leadContent = this.parseLeadContent(leadContentRaw);
-      if (leadContent === undefined) {
-        return {
-          error: {
-            row: rowNumber,
-            column: columns.leadContent,
-            message: `Invalid lead content value: ${leadContentRaw}`,
-            value: leadContentRaw,
-          },
-        };
+
+      // 3. Detect junk rows (No component)
+      // Per latest instruction: "if there's no component, let's ignore the row"
+      if (!rawComponent) {
+        return { isJunk: true };
       }
+
+      // 4. Validate required fields for real data
+      if (!rawReadingId) {
+        return { isJunk: true }; // Reading ID is mandatory for a valid shot
+      }
+
+      // 5. Ensure we have a lead value
+      if (leadContent === undefined) {
+        // If it's not a valid number/pos/neg, it's not a usable reading
+        return { isJunk: true };
+      }
+
+      // 6. Ensure readingId is unique by appending row index
+      const readingId = `${rawReadingId}_${rowIndex}`;
 
       // Build reading object
       const unitNumber = columns.unitNumber
         ? String(row[columns.unitNumber] || "").trim() || undefined
         : undefined;
-      const roomType = columns.roomType
-        ? String(row[columns.roomType] || "").trim() || undefined
-        : undefined;
-      const roomNumber = columns.roomNumber
-        ? String(row[columns.roomNumber] || "").trim() || undefined
-        : undefined;
 
-      // Build location string if not provided but components exist
+      // Build location string if not provided
       let location = columns.location
         ? String(row[columns.location] || "").trim()
         : "";
       
       if (!location && (unitNumber || roomType || roomNumber)) {
-        // Auto-build location from components: "Unit 101 - Bedroom 2"
         const parts: string[] = [];
         if (unitNumber) parts.push(`Unit ${unitNumber}`);
-        if (roomType) parts.push(roomNumber ? `${roomType} ${roomNumber}` : roomType);
-        else if (roomNumber) parts.push(`Room ${roomNumber}`);
+        const rType = roomType || undefined;
+        const rNum = roomNumber || undefined;
+        if (rType) parts.push(rNum ? `${rType} ${rNum}` : rType);
+        else if (rNum) parts.push(`Room ${rNum}`);
         location = parts.join(" - ");
       }
 
       const reading: IXrfReading = {
         readingId,
-        component,
+        component: rawComponent,
         color: color || "Unknown",
         leadContent,
         isPositive: leadContent >= LEAD_POSITIVE_THRESHOLD,
         location,
         unitNumber,
-        roomType,
-        roomNumber,
-        substrate: columns.substrate
-          ? String(row[columns.substrate] || "").trim() || undefined
-          : undefined,
+        roomType: roomType || undefined,
+        roomNumber: roomNumber || undefined,
+        substrate: substrate || undefined,
         side: columns.side
           ? String(row[columns.side] || "").trim() || undefined
           : undefined,
@@ -451,10 +505,10 @@ export class ExcelParserService {
         timestamp: columns.timestamp
           ? this.parseTimestamp(row[columns.timestamp])
           : undefined,
-        rawRow: row,
+        rawRow: { ...row, originalReadingId: rawReadingId },
       };
 
-      return { reading, warning };
+      return { reading };
     } catch (error) {
       return {
         error: {
@@ -474,6 +528,28 @@ export class ExcelParserService {
     }
 
     if (typeof value === "string") {
+      const lowerVal = value.toLowerCase().trim();
+
+      // Handle common "Positive" indicators
+      if (
+        lowerVal === "pos" ||
+        lowerVal === "positive" ||
+        lowerVal === "assumed" ||
+        lowerVal === "assumed positive"
+      ) {
+        return LEAD_POSITIVE_THRESHOLD + 0.05; // 1.05 (Avoids exact 1.1 calibration check)
+      }
+
+      // Handle common "Negative" indicators
+      if (
+        lowerVal === "neg" ||
+        lowerVal === "negative" ||
+        lowerVal === "n/a" ||
+        lowerVal === "-"
+      ) {
+        return 0;
+      }
+
       // Remove common units/formatting
       const cleaned = value
         .replace(/mg\/cm[²2]/gi, "")
@@ -481,16 +557,6 @@ export class ExcelParserService {
         .replace(/[<>]/g, "")
         .replace(/,/g, "") // Remove thousand separators
         .trim();
-
-      // Handle "negative" or "N/A" type values
-      if (
-        cleaned.toLowerCase() === "negative" ||
-        cleaned.toLowerCase() === "neg" ||
-        cleaned === "N/A" ||
-        cleaned === "-"
-      ) {
-        return 0;
-      }
 
       const parsed = parseFloat(cleaned);
       return isNaN(parsed) ? undefined : parsed;
@@ -566,6 +632,40 @@ export class ExcelParserService {
       detectedColumns: {},
       unmappedColumns: [],
     };
+  }
+
+  /**
+   * Check if a row is a calibration reading
+   */
+  private isCalibrationRow(component: string, leadContent?: any, readingId?: string): boolean {
+    const lowerComp = component.toLowerCase().trim();
+    const lowerId = (readingId || "").toLowerCase().trim();
+    
+    // 1. Explicit calibration words in component OR reading ID
+    if (
+      lowerComp.includes("calibrate") ||
+      lowerComp.includes("calib") ||
+      lowerComp === "cal" ||
+      lowerComp === "cal." ||
+      lowerComp.includes("standard") ||
+      lowerId.includes("calibrate") ||
+      lowerId.includes("calib")
+    ) {
+      return true;
+    }
+
+    // 2. If it's a numeric reading ID (1, 2, 3...) it's usually real data.
+    // If it's not numeric and not a calibration word, it might be junk.
+    
+    // 3. If component is empty, check if it's a calibration value (usually 1.0 or 1.1)
+    if (!component) {
+      const val = this.parseLeadContent(leadContent);
+      if (val === 1.0 || val === 1.1 || val === 1.2) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**

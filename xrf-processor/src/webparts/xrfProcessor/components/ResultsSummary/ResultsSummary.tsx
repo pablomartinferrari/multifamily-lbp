@@ -12,7 +12,9 @@ import {
   Icon,
   TooltipHost,
   DetailsListLayoutMode,
+  PrimaryButton,
 } from "@fluentui/react";
+import * as XLSX from "xlsx";
 import {
   IJobSummary,
   IDatasetSummary,
@@ -342,13 +344,69 @@ export const ResultsSummary: React.FC<IResultsSummaryProps> = ({
   const hasUnits = summary.unitsSummary && summary.unitsSummary.totalReadings > 0;
   const hasReadings = readings && readings.length > 0;
 
+  const handleExportExcel = (): void => {
+    const workbook = XLSX.utils.book_new();
+    const activeSummary = hasUnits ? summary.unitsSummary : summary.commonAreaSummary;
+    
+    if (!activeSummary) return;
+
+    // 1. Average Components Sheet
+    if (activeSummary.averageComponents.length > 0) {
+      const avgData = activeSummary.averageComponents.map(c => ({
+        "Component": c.component,
+        "Result": c.result,
+        "Positive %": `${c.positivePercent}%`,
+        "Negative %": `${c.negativePercent}%`,
+        "Pos Count": c.positiveCount,
+        "Neg Count": c.negativeCount,
+        "Total Readings": c.totalReadings
+      }));
+      const ws = XLSX.utils.json_to_sheet(avgData);
+      XLSX.utils.book_append_sheet(workbook, ws, "Average Components");
+    }
+
+    // 2. Uniform Components Sheet
+    if (activeSummary.uniformComponents.length > 0) {
+      const uniData = activeSummary.uniformComponents.map(c => ({
+        "Component": c.component,
+        "Result": c.result,
+        "Total Readings": c.totalReadings
+      }));
+      const ws = XLSX.utils.json_to_sheet(uniData);
+      XLSX.utils.book_append_sheet(workbook, ws, "Uniform Components");
+    }
+
+    // 3. Non-Uniform Components Sheet
+    if (activeSummary.nonUniformComponents.length > 0) {
+      const nonData = activeSummary.nonUniformComponents.map(c => ({
+        "Component": c.component,
+        "Positive Count": c.positiveCount,
+        "Negative Count": c.negativeCount,
+        "Positive %": `${c.positivePercent}%`,
+        "Total Readings": c.totalReadings
+      }));
+      const ws = XLSX.utils.json_to_sheet(nonData);
+      XLSX.utils.book_append_sheet(workbook, ws, "Non-Uniform Components");
+    }
+
+    const filename = `XRF_Summary_${summary.jobNumber}_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(workbook, filename);
+  };
+
   return (
     <Stack tokens={{ childrenGap: 16 }} className={styles.container}>
       {/* Header */}
       <Stack className={styles.header}>
-        <Text variant="xLarge" className={styles.jobTitle}>
-          Job: {summary.jobNumber}
-        </Text>
+        <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
+          <Text variant="xLarge" className={styles.jobTitle}>
+            Job: {summary.jobNumber}
+          </Text>
+          <PrimaryButton 
+            text="Export All to Excel" 
+            iconProps={{ iconName: "ExcelDocument" }} 
+            onClick={handleExportExcel} 
+          />
+        </Stack>
         <Stack horizontal tokens={{ childrenGap: 16 }} className={styles.metadata}>
           <Text variant="small">
             <Icon iconName="Calendar" className={styles.metaIcon} />

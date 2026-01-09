@@ -75,7 +75,7 @@ Output: `sharepoint/solution/xrf-processor.sppkg`
 
 1. Go to your target SharePoint site
 2. **Site Settings** → **Add an app**
-3. Find **"xrf-processor-client-side-solution"** and add it
+3. Find **"XRF Lead Paint Processor"** and add it
 4. Create a new page or edit an existing page
 5. Add the **"XRF Lead Paint Processor"** web part
 
@@ -100,8 +100,8 @@ Click the web part's **Edit** (pencil icon) to open the property pane:
 ```json
 {
   "solution": {
-    "name": "xrf-processor-client-side-solution",
-    "version": "1.0.0.0",
+    "name": "XRF Lead Paint Processor",
+    "version": "1.0.0.2",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "developer": {
