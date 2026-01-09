@@ -21,3 +21,5 @@ Thumbs.db
 
 # Node modules (redundant with xrf-processor/.gitignore but good to have)
 node_modules/
+/data
+/scripts/sharepoint/check.ps1
