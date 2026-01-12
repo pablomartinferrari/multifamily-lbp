@@ -5,6 +5,7 @@ import {
   Dropdown,
   IDropdownOption,
   PrimaryButton,
+  DefaultButton,
   MessageBar,
   MessageBarType,
   ProgressIndicator,
@@ -16,6 +17,8 @@ import styles from "./FileUpload.module.scss";
 export interface IFileUploadProps {
   /** Called when user submits the form */
   onSubmit: (file: File, jobNumber: string, areaType: "Units" | "Common Areas") => void;
+  /** Called when user wants to load existing data */
+  onLoadExisting?: (jobNumber: string, areaType: "Units" | "Common Areas") => void;
   /** Whether a file is currently being processed */
   isProcessing: boolean;
   /** Optional progress percentage (0-100) */
@@ -30,10 +33,11 @@ const areaTypeOptions: IDropdownOption[] = [
 ];
 
 /** Accepted file extensions */
-const ACCEPTED_EXTENSIONS = [".xlsx"];
+const ACCEPTED_EXTENSIONS = [".xlsx", ".csv"];
 
 export const FileUpload: React.FC<IFileUploadProps> = ({
   onSubmit,
+  onLoadExisting,
   isProcessing,
   progress,
   progressMessage,
@@ -57,7 +61,7 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
     );
 
     if (!hasValidExtension) {
-      setError("Please select an Excel (.xlsx) file");
+      setError("Please select an Excel (.xlsx) or CSV (.csv) file");
       return;
     }
 
@@ -110,8 +114,12 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
   };
 
   const isFormValid = file && jobNumber.trim();
+  const canLoadExisting = onLoadExisting && jobNumber.trim() && !file;
 
   const getFileIcon = (): string => {
+    if (file?.name.toLowerCase().endsWith(".csv")) {
+      return "TextDocument";
+    }
     return "ExcelDocument";
   };
 
@@ -160,7 +168,7 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
               Drag & drop file here or click to browse
             </Text>
             <Text className={styles.dropZoneHint}>
-              Accepts .xlsx files
+              Accepts .xlsx and .csv files
             </Text>
           </Stack>
         )}
@@ -209,14 +217,34 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
         </Stack>
       )}
 
-      {/* Submit Button */}
-      <PrimaryButton
-        text={isProcessing ? "Processing..." : "Process File"}
-        onClick={handleSubmit}
-        disabled={!isFormValid || isProcessing}
-        className={styles.submitButton}
-        iconProps={{ iconName: isProcessing ? "Sync" : "CloudUpload" }}
-      />
+      {/* Submit Buttons */}
+      <Stack horizontal tokens={{ childrenGap: 12 }}>
+        <PrimaryButton
+          text={isProcessing ? "Processing..." : "Process File"}
+          onClick={handleSubmit}
+          disabled={!isFormValid || isProcessing}
+          className={styles.submitButton}
+          iconProps={{ iconName: isProcessing ? "Sync" : "CloudUpload" }}
+        />
+        {onLoadExisting && (
+          <DefaultButton
+            text="Load Existing Data"
+            onClick={() => onLoadExisting(jobNumber.trim(), areaType)}
+            disabled={!canLoadExisting || isProcessing}
+            iconProps={{ iconName: "Download" }}
+            title="Load previously uploaded data for this Job ID and Area Type"
+          />
+        )}
+      </Stack>
+
+      {/* Help text for Load Existing */}
+      {onLoadExisting && !file && jobNumber.trim() && (
+        <MessageBar messageBarType={MessageBarType.info}>
+          <Text variant="small">
+            <strong>Tip:</strong> If you&apos;ve already uploaded data for this job, click &quot;Load Existing Data&quot; to view or regenerate the report without re-uploading.
+          </Text>
+        </MessageBar>
+      )}
     </Stack>
   );
 };

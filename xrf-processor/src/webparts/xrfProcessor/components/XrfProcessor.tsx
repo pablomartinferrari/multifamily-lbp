@@ -4,6 +4,7 @@ import type { IXrfProcessorProps } from "./IXrfProcessorProps";
 import {
   PrimaryButton,
   DefaultButton,
+  IconButton,
   MessageBar,
   MessageBarType,
   Stack,
@@ -12,6 +13,7 @@ import {
   PivotItem,
   ProgressIndicator,
   Icon,
+  TooltipHost,
 } from "@fluentui/react";
 import {
   testSharePointConnection,
@@ -28,12 +30,14 @@ import {
   IExistingFileInfo,
   ConflictResolution,
 } from "./UploadConflictDialog";
+import { HelpChatPanel } from "./HelpChatPanel";
 
 // Services
 import { getSharePointService } from "../services/ServiceFactory";
 import { ExcelParserService } from "../services/ExcelParserService";
 import { SummaryService } from "../services/SummaryService";
 import { getComponentNormalizerService } from "../services/ComponentNormalizerService";
+import { getSubstrateNormalizerService } from "../services/SubstrateNormalizerService";
 
 // Models
 import { IXrfReading } from "../models/IXrfReading";
@@ -84,6 +88,9 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     jobNumber: string;
     areaType: "Units" | "Common Areas";
   } | undefined>(undefined);
+
+  // Help panel state
+  const [helpPanelOpen, setHelpPanelOpen] = React.useState(false);
 
   // ============================================
   // State Helpers
@@ -210,12 +217,26 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
       const normalizedComponents = await normalizerService.normalizeComponents(
         componentNames,
         (progress) => {
-          const normalizeProgress = 45 + Math.round((progress.processed / progress.total) * 15);
-          updateState("NORMALIZING", normalizeProgress, progress.message);
+          const normalizeProgress = 45 + Math.round((progress.processed / progress.total) * 7);
+          updateState("NORMALIZING", normalizeProgress, `Components: ${progress.message}`);
         }
       );
 
       setNormalizations(normalizedComponents);
+
+      // Normalize substrate names
+      updateState("NORMALIZING", 52, "Normalizing substrate names with AI...");
+      const substrateNormalizerService = getSubstrateNormalizerService();
+      const { readings: readingsWithSubstrate } = await substrateNormalizerService.normalizeReadings(
+        allReadings,
+        (progress) => {
+          const normalizeProgress = 52 + Math.round((progress.processed / progress.total) * 8);
+          updateState("NORMALIZING", normalizeProgress, `Substrates: ${progress.message}`);
+        }
+      );
+
+      // Update readings with normalized substrates
+      setReadings(readingsWithSubstrate);
 
       // Move to review step
       updateState("REVIEWING", 60, "Review AI normalization suggestions...");
@@ -294,6 +315,113 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
   };
 
   // ============================================
+  // Load Existing Data (without re-uploading)
+  // ============================================
+  const handleLoadExisting = async (
+    jobNumber: string,
+    areaType: "Units" | "Common Areas"
+  ): Promise<void> => {
+    console.log("Loading existing data:", { jobNumber, areaType });
+
+    try {
+      updateState("UPLOADING", 5, "Checking for existing data...");
+      const spService = getSharePointService();
+
+      // Check if data exists
+      const existingData = await spService.checkExistingData(jobNumber, areaType);
+      if (!existingData.exists) {
+        updateState(
+          "ERROR",
+          0,
+          "No existing data found",
+          `No data found for Job ${jobNumber} (${areaType}). Please upload a file first.`
+        );
+        return;
+      }
+
+      // Try to get the source file and re-parse it
+      updateState("UPLOADING", 15, "Loading source file from SharePoint...");
+      const sourceFile = await spService.getSourceFileForJob(jobNumber, areaType);
+
+      if (!sourceFile) {
+        updateState(
+          "ERROR",
+          0,
+          "Source file not found",
+          `The source file for Job ${jobNumber} (${areaType}) could not be found. You may need to re-upload the file.`
+        );
+        return;
+      }
+
+      // Create a File-like object from the buffer for the job metadata
+      const blob = new Blob([sourceFile.buffer], { 
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+      });
+      const fileObject = new File([blob], sourceFile.fileName, { type: blob.type });
+      
+      setJobMetadata({ file: fileObject, jobNumber, areaType });
+
+      // Parse the file
+      updateState("PARSING", 25, "Parsing file data...");
+      const parseResult = await parserService.parseFile(sourceFile.buffer, (processed, total, stage) => {
+        const baseProgress = stage === "reading" ? 25 : 35;
+        const stageProgress = Math.round((processed / total) * 10);
+        updateState("PARSING", baseProgress + stageProgress, `Parsing: ${processed}/${total} rows...`);
+      });
+
+      if (parseResult.readings.length === 0) {
+        const errorMsg = parseResult.errors.length > 0
+          ? parseResult.errors.map((e) => e.message).join("; ")
+          : "No valid readings found in file";
+        throw new Error(errorMsg);
+      }
+
+      console.log(`Parsed ${parseResult.readings.length} readings from existing file`);
+      setReadings(parseResult.readings);
+
+      // Normalize component names
+      updateState("NORMALIZING", 45, "Normalizing component names with AI...");
+      const normalizerService = getComponentNormalizerService();
+      const componentNames = Array.from(new Set(parseResult.readings.map((r) => r.component)));
+
+      const normalizedComponents = await normalizerService.normalizeComponents(
+        componentNames,
+        (progress) => {
+          const normalizeProgress = 45 + Math.round((progress.processed / progress.total) * 7);
+          updateState("NORMALIZING", normalizeProgress, `Components: ${progress.message}`);
+        }
+      );
+
+      setNormalizations(normalizedComponents);
+
+      // Normalize substrate names
+      updateState("NORMALIZING", 52, "Normalizing substrate names with AI...");
+      const substrateNormalizerService = getSubstrateNormalizerService();
+      const { readings: readingsWithSubstrate } = await substrateNormalizerService.normalizeReadings(
+        parseResult.readings,
+        (progress) => {
+          const normalizeProgress = 52 + Math.round((progress.processed / progress.total) * 8);
+          updateState("NORMALIZING", normalizeProgress, `Substrates: ${progress.message}`);
+        }
+      );
+
+      // Update readings with normalized substrates
+      setReadings(readingsWithSubstrate);
+
+      // Move to review step
+      updateState("REVIEWING", 60, "Review AI normalization suggestions...");
+    } catch (error) {
+      console.error("Load existing data error:", error);
+      updateState(
+        "ERROR",
+        0,
+        "Failed to load existing data",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  };
+
+  // ============================================
   // Step 2: Normalization Approval -> Move to Editing
   // ============================================
   const handleNormalizationApprove = async (
@@ -340,19 +468,32 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
 
   const handleReNormalize = async (): Promise<void> => {
     try {
-      updateState("NORMALIZING", 45, "Re-normalizing updated component names...");
+      updateState("NORMALIZING", 45, "Re-normalizing component names...");
       const normalizerService = getComponentNormalizerService();
       const componentNames = Array.from(new Set(readings.map((r) => r.component)));
 
       const normalizedComponents = await normalizerService.normalizeComponents(
         componentNames,
         (progress) => {
-          const normalizeProgress = 45 + Math.round((progress.processed / progress.total) * 15);
-          updateState("NORMALIZING", normalizeProgress, progress.message);
+          const normalizeProgress = 45 + Math.round((progress.processed / progress.total) * 7);
+          updateState("NORMALIZING", normalizeProgress, `Components: ${progress.message}`);
         }
       );
 
       setNormalizations(normalizedComponents);
+
+      // Also re-normalize substrate names
+      updateState("NORMALIZING", 52, "Re-normalizing substrate names...");
+      const substrateNormalizerService = getSubstrateNormalizerService();
+      const { readings: readingsWithSubstrate } = await substrateNormalizerService.normalizeReadings(
+        readings,
+        (progress) => {
+          const normalizeProgress = 52 + Math.round((progress.processed / progress.total) * 8);
+          updateState("NORMALIZING", normalizeProgress, `Substrates: ${progress.message}`);
+        }
+      );
+
+      setReadings(readingsWithSubstrate);
       updateState("REVIEWING", 60, "Review AI normalization suggestions...");
     } catch (error) {
       console.error("Re-normalization error:", error);
@@ -552,9 +693,44 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     <section className={`${styles.xrfProcessor} ${hasTeamsContext ? styles.teams : ""}`}>
       {/* Header */}
       <div className={styles.welcome}>
-        <h2>LBP Multifamily Convert</h2>
-        <Text variant="medium">Welcome, {userDisplayName}!</Text>
+        <Stack horizontal horizontalAlign="space-between" verticalAlign="center" style={{ width: "100%" }}>
+          <Stack>
+            <h2 style={{ margin: 0 }}>LBP Multifamily Convert</h2>
+            <Text variant="medium">Welcome, {userDisplayName}!</Text>
+          </Stack>
+          <TooltipHost content="Ask AI for help using this application">
+            <IconButton
+              iconProps={{ iconName: "Sparkle" }}
+              title="AI Help Assistant"
+              ariaLabel="Open AI help assistant"
+              onClick={() => setHelpPanelOpen(true)}
+              styles={{
+                root: {
+                  backgroundColor: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  color: "white",
+                  borderRadius: "50%",
+                  width: 40,
+                  height: 40,
+                },
+                rootHovered: {
+                  background: "linear-gradient(135deg, #5a67d8 0%, #6b46a1 100%)",
+                  color: "white",
+                },
+                icon: {
+                  fontSize: 18,
+                },
+              }}
+            />
+          </TooltipHost>
+        </Stack>
       </div>
+
+      {/* Help Chat Panel */}
+      <HelpChatPanel
+        isOpen={helpPanelOpen}
+        onDismiss={() => setHelpPanelOpen(false)}
+      />
 
       {/* Error Display */}
       {renderError()}
@@ -599,6 +775,7 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
             <Stack tokens={{ childrenGap: 16 }} styles={{ root: { marginTop: 16 } }}>
               <FileUpload
                 onSubmit={handleFileSubmit}
+                onLoadExisting={handleLoadExisting}
                 isProcessing={
                   state.step !== "IDLE" && state.step !== "ERROR" && state.step !== "COMPLETE"
                 }

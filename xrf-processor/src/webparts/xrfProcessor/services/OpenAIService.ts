@@ -2,6 +2,7 @@ import {
   IOpenAIConfig,
   DEFAULT_OPENAI_CONFIG,
   NORMALIZATION_SYSTEM_PROMPT,
+  SUBSTRATE_NORMALIZATION_SYSTEM_PROMPT,
   AIProvider,
 } from "../config/OpenAIConfig";
 import { INormalizationResult } from "../models/INormalization";
@@ -111,6 +112,61 @@ Return ONLY the JSON object, no other text.`;
     }
 
     return jsonResult as INormalizationResult;
+  }
+
+  /**
+   * Normalize substrate (surface material) names using AI
+   * @param substrateNames - Array of unique substrate names to normalize
+   */
+  async normalizeSubstrates(substrateNames: string[]): Promise<INormalizationResult> {
+    if (substrateNames.length === 0) {
+      return { normalizations: [] };
+    }
+
+    if (!this.isConfigured()) {
+      throw new Error(
+        this.config.provider === "openai"
+          ? "OpenAI API key not configured"
+          : "Azure OpenAI not configured (need endpoint, key, and deployment)"
+      );
+    }
+
+    const userPrompt = `Normalize these substrate (surface material) names from an XRF lead paint inspection:
+
+${substrateNames.join("\n")}
+
+Return ONLY the JSON object, no other text.`;
+
+    const response = await this.callChatCompletion(
+      SUBSTRATE_NORMALIZATION_SYSTEM_PROMPT,
+      userPrompt
+    );
+
+    // Parse JSON from response
+    const jsonResult = this.extractJson(response);
+    if (!jsonResult) {
+      console.error("Failed to parse AI response:", response);
+      throw new Error("Could not parse JSON from AI response");
+    }
+
+    return jsonResult as INormalizationResult;
+  }
+
+  /**
+   * General chat completion for Q&A (used by help assistant)
+   * @param systemPrompt - System prompt with context
+   * @param userMessage - User's question
+   */
+  async chat(systemPrompt: string, userMessage: string): Promise<string> {
+    if (!this.isConfigured()) {
+      throw new Error(
+        this.config.provider === "openai"
+          ? "OpenAI API key not configured"
+          : "Azure OpenAI not configured (need endpoint, key, and deployment)"
+      );
+    }
+
+    return this.callChatCompletion(systemPrompt, userMessage);
   }
 
   /**

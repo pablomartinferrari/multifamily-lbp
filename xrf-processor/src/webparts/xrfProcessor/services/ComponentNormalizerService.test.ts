@@ -552,4 +552,110 @@ describe('ComponentNormalizerService', () => {
       expect(result.find(r => r.originalName === 'stringer')?.normalizedName).toBe('Stair Stringer');
     });
   });
+
+  describe('Abbreviation Expansion', () => {
+    it('should group "clos. wall" and "closet wall" to same canonical form', async () => {
+      // AI should recognize that "clos." is an abbreviation for "closet"
+      mockOpenAIService.normalizeComponents.mockResolvedValue({
+        normalizations: [
+          {
+            canonical: 'Closet Wall',
+            variants: ['clos. wall', 'closet wall', 'clos wall'],
+            confidence: 0.95,
+          },
+        ],
+      });
+
+      const result = await service.normalizeComponents([
+        'clos. wall',
+        'closet wall',
+        'clos wall',
+      ]);
+
+      // All three different names should normalize to the same canonical form
+      expect(result).toHaveLength(3);
+      result.forEach(r => {
+        expect(r.normalizedName).toBe('Closet Wall');
+      });
+    });
+
+    it('should expand "dr. jamb" to "Door Jamb"', async () => {
+      mockOpenAIService.normalizeComponents.mockResolvedValue({
+        normalizations: [
+          {
+            canonical: 'Door Jamb',
+            variants: ['dr. jamb', 'dr jamb', 'door jamb', 'doorjamb'],
+            confidence: 0.95,
+          },
+        ],
+      });
+
+      const result = await service.normalizeComponents(['dr. jamb', 'door jamb']);
+
+      expect(result).toHaveLength(2);
+      result.forEach(r => {
+        expect(r.normalizedName).toBe('Door Jamb');
+      });
+    });
+
+    it('should expand "kit. cab" to "Kitchen Cabinet"', async () => {
+      mockOpenAIService.normalizeComponents.mockResolvedValue({
+        normalizations: [
+          {
+            canonical: 'Kitchen Cabinet',
+            variants: ['kit. cab', 'kit cab', 'kitchen cabinet', 'kitch cabinet'],
+            confidence: 0.95,
+          },
+        ],
+      });
+
+      const result = await service.normalizeComponents(['kit. cab', 'kitchen cabinet']);
+
+      expect(result).toHaveLength(2);
+      result.forEach(r => {
+        expect(r.normalizedName).toBe('Kitchen Cabinet');
+      });
+    });
+
+    it('should expand "win. sill" to "Window Sill"', async () => {
+      mockOpenAIService.normalizeComponents.mockResolvedValue({
+        normalizations: [
+          {
+            canonical: 'Window Sill',
+            variants: ['win. sill', 'win sill', 'window sill', 'wndw sill', 'W/S'],
+            confidence: 0.95,
+          },
+        ],
+      });
+
+      const result = await service.normalizeComponents(['win. sill', 'window sill', 'W/S']);
+
+      expect(result).toHaveLength(3);
+      result.forEach(r => {
+        expect(r.normalizedName).toBe('Window Sill');
+      });
+    });
+
+    it('should handle mixed abbreviations and full words in same component', async () => {
+      mockOpenAIService.normalizeComponents.mockResolvedValue({
+        normalizations: [
+          {
+            canonical: 'Bedroom Door Frame',
+            variants: ['brm dr frame', 'bedroom door frame', 'bdrm door frame'],
+            confidence: 0.90,
+          },
+        ],
+      });
+
+      const result = await service.normalizeComponents([
+        'brm dr frame',
+        'bedroom door frame',
+      ]);
+
+      expect(result).toHaveLength(2);
+      result.forEach(r => {
+        expect(r.normalizedName).toBe('Bedroom Door Frame');
+      });
+    });
+  });
 });

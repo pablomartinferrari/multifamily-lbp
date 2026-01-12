@@ -2,6 +2,7 @@ export const LIBRARY_NAMES = {
   SOURCE_FILES: "XRF-SourceFiles",
   PROCESSED_RESULTS: "XRF-ProcessedResults",
   COMPONENT_CACHE: "XRF-ComponentCache",
+  SUBSTRATE_CACHE: "XRF-SubstrateCache",
 } as const;
 
 export const FIELDS = {
@@ -21,6 +22,13 @@ export const FIELDS = {
     LEAD_POSITIVE_PERCENT: "LeadPositivePercent",
   },
   COMPONENT_CACHE: {
+    NORMALIZED_NAME: "NormalizedName",
+    CONFIDENCE: "Confidence",
+    SOURCE: "Source",
+    USAGE_COUNT: "UsageCount",
+    LAST_USED: "LastUsed",
+  },
+  SUBSTRATE_CACHE: {
     NORMALIZED_NAME: "NormalizedName",
     CONFIDENCE: "Confidence",
     SOURCE: "Source",

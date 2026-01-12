@@ -21,6 +21,8 @@ export const POSITIVE_PERCENT_THRESHOLD = 2.5;
  */
 export interface IAverageComponentSummary {
   component: string;
+  /** Substrate/surface material (e.g., "Wood", "Metal") */
+  substrate?: string;
   totalReadings: number;
   positiveCount: number;
   negativeCount: number;
@@ -37,6 +39,8 @@ export interface IAverageComponentSummary {
  */
 export interface IUniformComponentSummary {
   component: string;
+  /** Substrate/surface material (e.g., "Wood", "Metal") */
+  substrate?: string;
   totalReadings: number;
   /** POSITIVE if all readings positive, NEGATIVE if all negative */
   result: "POSITIVE" | "NEGATIVE";
@@ -49,6 +53,8 @@ export interface IUniformComponentSummary {
  */
 export interface INonUniformComponentSummary {
   component: string;
+  /** Substrate/surface material (e.g., "Wood", "Metal") */
+  substrate?: string;
   totalReadings: number;
   positiveCount: number;
   negativeCount: number;

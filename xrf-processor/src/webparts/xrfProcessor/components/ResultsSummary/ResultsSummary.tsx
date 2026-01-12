@@ -52,9 +52,18 @@ function getAverageColumns(): IColumn[] {
       key: "component",
       name: "Component",
       fieldName: "component",
-      minWidth: 150,
-      maxWidth: 250,
+      minWidth: 140,
+      maxWidth: 220,
       isResizable: true,
+    },
+    {
+      key: "substrate",
+      name: "Substrate",
+      fieldName: "substrate",
+      minWidth: 100,
+      maxWidth: 140,
+      isResizable: true,
+      onRender: (item: IAverageComponentSummary) => item.substrate || "—",
     },
     {
       key: "result",
@@ -114,9 +123,18 @@ function getUniformColumns(): IColumn[] {
       key: "component",
       name: "Component",
       fieldName: "component",
-      minWidth: 150,
-      maxWidth: 300,
+      minWidth: 140,
+      maxWidth: 220,
       isResizable: true,
+    },
+    {
+      key: "substrate",
+      name: "Substrate",
+      fieldName: "substrate",
+      minWidth: 100,
+      maxWidth: 140,
+      isResizable: true,
+      onRender: (item: IUniformComponentSummary) => item.substrate || "—",
     },
     {
       key: "result",
@@ -144,9 +162,18 @@ function getNonUniformColumns(
       key: "component",
       name: "Component",
       fieldName: "component",
-      minWidth: 150,
-      maxWidth: 250,
+      minWidth: 140,
+      maxWidth: 220,
       isResizable: true,
+    },
+    {
+      key: "substrate",
+      name: "Substrate",
+      fieldName: "substrate",
+      minWidth: 100,
+      maxWidth: 140,
+      isResizable: true,
+      onRender: (item: INonUniformComponentSummary) => item.substrate || "—",
     },
     {
       key: "positiveCount",
@@ -236,7 +263,7 @@ const DatasetSummaryView: React.FC<IDatasetSummaryViewProps> = ({
         </div>
         <div className={styles.statCard}>
           <Text className={styles.statValue}>{summary.uniqueComponents}</Text>
-          <Text className={styles.statLabel}>Components</Text>
+          <Text className={styles.statLabel}>Unique Combinations</Text>
         </div>
       </Stack>
 
@@ -354,6 +381,7 @@ export const ResultsSummary: React.FC<IResultsSummaryProps> = ({
     if (activeSummary.averageComponents.length > 0) {
       const avgData = activeSummary.averageComponents.map(c => ({
         "Component": c.component,
+        "Substrate": c.substrate || "",
         "Result": c.result,
         "Positive %": `${c.positivePercent}%`,
         "Negative %": `${c.negativePercent}%`,
@@ -369,6 +397,7 @@ export const ResultsSummary: React.FC<IResultsSummaryProps> = ({
     if (activeSummary.uniformComponents.length > 0) {
       const uniData = activeSummary.uniformComponents.map(c => ({
         "Component": c.component,
+        "Substrate": c.substrate || "",
         "Result": c.result,
         "Total Readings": c.totalReadings
       }));
@@ -380,6 +409,7 @@ export const ResultsSummary: React.FC<IResultsSummaryProps> = ({
     if (activeSummary.nonUniformComponents.length > 0) {
       const nonData = activeSummary.nonUniformComponents.map(c => ({
         "Component": c.component,
+        "Substrate": c.substrate || "",
         "Positive Count": c.positiveCount,
         "Negative Count": c.negativeCount,
         "Positive %": `${c.positivePercent}%`,
