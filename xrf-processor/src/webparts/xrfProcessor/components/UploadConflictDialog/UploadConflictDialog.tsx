@@ -75,21 +75,9 @@ export const UploadConflictDialog: React.FC<IUploadConflictDialogProps> = ({
   newFileName,
   onResolve,
 }) => {
-  const [selectedOption, setSelectedOption] = React.useState<ConflictResolution>("replace");
+  const [selectedOption, setSelectedOption] = React.useState<ConflictResolution>("merge");
 
   const options: IChoiceGroupOption[] = [
-    {
-      key: "replace",
-      text: "Replace existing data",
-      onRenderLabel: (props) => (
-        <Stack className={styles.optionLabel}>
-          <Text>{props?.text}</Text>
-          <Text className={styles.optionDescription}>
-            Remove all previous readings and use only the new file
-          </Text>
-        </Stack>
-      ),
-    },
     {
       key: "merge",
       text: "Merge with existing data",
@@ -98,6 +86,18 @@ export const UploadConflictDialog: React.FC<IUploadConflictDialogProps> = ({
           <Text>{props?.text}</Text>
           <Text className={styles.optionDescription}>
             Combine readings from both files (new readings will be added, duplicates will be updated)
+          </Text>
+        </Stack>
+      ),
+    },
+    {
+      key: "replace",
+      text: "Replace existing data",
+      onRenderLabel: (props) => (
+        <Stack className={styles.optionLabel}>
+          <Text>{props?.text}</Text>
+          <Text className={styles.optionDescription}>
+            Remove all previous readings and use only the new file
           </Text>
         </Stack>
       ),

@@ -10,9 +10,11 @@ import {
   ISourceFileItem,
   IProcessedResultItem,
   IComponentCacheItem,
+  ISubstrateCacheItem,
   ISourceFileMetadata,
   IProcessedResultMetadata,
   IComponentMapping,
+  ISubstrateMapping,
 } from "../models/SharePointTypes";
 import { IXrfReading } from "../models/IXrfReading";
 import { IDatasetSummary } from "../models/ISummary";
@@ -68,6 +70,42 @@ export class SharePointService {
   async getFileContent(fileUrl: string): Promise<ArrayBuffer> {
     const file = this.sp.web.getFileByServerRelativePath(fileUrl);
     return await file.getBuffer();
+  }
+
+  /**
+   * Get the source file for a job/area type and return it as an ArrayBuffer for parsing
+   * Returns null if no source file exists
+   */
+  async getSourceFileForJob(
+    jobNumber: string,
+    areaType: "Units" | "Common Areas"
+  ): Promise<{ buffer: ArrayBuffer; fileName: string; fileUrl: string } | null> {
+    const sourceFiles = await this.sp.web.lists
+      .getByTitle(LIBRARY_NAMES.SOURCE_FILES)
+      .items.filter(
+        `${FIELDS.SOURCE_FILES.JOB_NUMBER} eq '${this.escapeOData(jobNumber)}' and ${FIELDS.SOURCE_FILES.AREA_TYPE} eq '${areaType}'`
+      )
+      .select("Id", "Title", "FileRef", "FileLeafRef")
+      .orderBy("Created", false)
+      .top(1)();
+
+    if (sourceFiles.length === 0 || !sourceFiles[0].FileRef) {
+      return null;
+    }
+
+    const fileUrl = sourceFiles[0].FileRef;
+    const fileName = sourceFiles[0].FileLeafRef || sourceFiles[0].Title || "unknown.xlsx";
+
+    try {
+      const buffer = await this.sp.web
+        .getFileByServerRelativePath(fileUrl)
+        .getBuffer();
+
+      return { buffer, fileName, fileUrl };
+    } catch (error) {
+      console.error("Failed to get source file content:", error);
+      return null;
+    }
   }
 
   /**
@@ -351,6 +389,145 @@ export class SharePointService {
         await list.items.getById(items[0].Id).update({
           [FIELDS.COMPONENT_CACHE.USAGE_COUNT]: (items[0].UsageCount || 0) + 1,
           [FIELDS.COMPONENT_CACHE.LAST_USED]: today,
+        });
+      }
+    }
+  }
+
+  // ============================================
+  // SUBSTRATE CACHE LIST
+  // ============================================
+
+  /**
+   * Get all cached substrate mappings
+   */
+  async getSubstrateCache(): Promise<ISubstrateCacheItem[]> {
+    return await this.sp.web.lists
+      .getByTitle(LIBRARY_NAMES.SUBSTRATE_CACHE)
+      .items.select("Id", "Title", "NormalizedName", "Confidence", "Source", "UsageCount", "LastUsed")
+      .top(PROCESSING.CACHE_FETCH_LIMIT)();
+  }
+
+  /**
+   * Get cached substrate mappings for specific substrate names
+   * Returns a Map for O(1) lookups
+   */
+  async getCachedSubstrateMappings(substrateNames: string[]): Promise<Map<string, ISubstrateCacheItem>> {
+    const cache = new Map<string, ISubstrateCacheItem>();
+
+    if (substrateNames.length === 0) return cache;
+
+    // Deduplicate and normalize
+    const uniqueNames = Array.from(new Set(substrateNames.map((n) => n.toLowerCase())));
+
+    // Build filter for batch query (SharePoint has URL length limits)
+    const batchSize = PROCESSING.FILTER_BATCH_SIZE;
+
+    for (let i = 0; i < uniqueNames.length; i += batchSize) {
+      const batch = uniqueNames.slice(i, i + batchSize);
+      const filterParts = batch.map((name) => `Title eq '${this.escapeOData(name)}'`);
+      const filter = filterParts.join(" or ");
+
+      const items: ISubstrateCacheItem[] = await this.sp.web.lists
+        .getByTitle(LIBRARY_NAMES.SUBSTRATE_CACHE)
+        .items.filter(filter)
+        .select("Id", "Title", "NormalizedName", "Confidence", "Source", "UsageCount", "LastUsed")();
+
+      items.forEach((item) => cache.set(item.Title.toLowerCase(), item));
+    }
+
+    return cache;
+  }
+
+  /**
+   * Add or update substrate mappings in cache
+   * Processes in batches to avoid overwhelming SharePoint
+   */
+  async updateSubstrateCache(
+    mappings: ISubstrateMapping[],
+    onProgress?: (processed: number, total: number) => void
+  ): Promise<void> {
+    const list = this.sp.web.lists.getByTitle(LIBRARY_NAMES.SUBSTRATE_CACHE);
+    const today = new Date().toISOString();
+
+    for (let i = 0; i < mappings.length; i++) {
+      const mapping = mappings[i];
+
+      // Check if exists (case-insensitive)
+      const existing = await list.items
+        .filter(`Title eq '${this.escapeOData(mapping.originalName)}'`)
+        .select("Id", "UsageCount")
+        .top(1)();
+
+      if (existing.length > 0) {
+        // Update existing
+        await list.items.getById(existing[0].Id).update({
+          [FIELDS.SUBSTRATE_CACHE.NORMALIZED_NAME]: mapping.normalizedName,
+          [FIELDS.SUBSTRATE_CACHE.CONFIDENCE]: mapping.confidence,
+          [FIELDS.SUBSTRATE_CACHE.SOURCE]: mapping.source,
+          [FIELDS.SUBSTRATE_CACHE.USAGE_COUNT]: (existing[0].UsageCount || 0) + 1,
+          [FIELDS.SUBSTRATE_CACHE.LAST_USED]: today,
+        });
+      } else {
+        // Create new
+        await list.items.add({
+          Title: mapping.originalName,
+          [FIELDS.SUBSTRATE_CACHE.NORMALIZED_NAME]: mapping.normalizedName,
+          [FIELDS.SUBSTRATE_CACHE.CONFIDENCE]: mapping.confidence,
+          [FIELDS.SUBSTRATE_CACHE.SOURCE]: mapping.source,
+          [FIELDS.SUBSTRATE_CACHE.USAGE_COUNT]: 1,
+          [FIELDS.SUBSTRATE_CACHE.LAST_USED]: today,
+        });
+      }
+
+      // Report progress
+      if (onProgress) {
+        onProgress(i + 1, mappings.length);
+      }
+
+      // Yield to UI every chunk
+      if ((i + 1) % PROCESSING.CHUNK_SIZE === 0) {
+        await this.yieldToUI();
+      }
+    }
+  }
+
+  /**
+   * Batch add new substrate mappings (faster for initial population)
+   */
+  async batchAddSubstrateMappings(mappings: ISubstrateMapping[]): Promise<void> {
+    const list = this.sp.web.lists.getByTitle(LIBRARY_NAMES.SUBSTRATE_CACHE);
+    const today = new Date().toISOString();
+
+    for (const mapping of mappings) {
+      await list.items.add({
+        Title: mapping.originalName,
+        [FIELDS.SUBSTRATE_CACHE.NORMALIZED_NAME]: mapping.normalizedName,
+        [FIELDS.SUBSTRATE_CACHE.CONFIDENCE]: mapping.confidence,
+        [FIELDS.SUBSTRATE_CACHE.SOURCE]: mapping.source,
+        [FIELDS.SUBSTRATE_CACHE.USAGE_COUNT]: 1,
+        [FIELDS.SUBSTRATE_CACHE.LAST_USED]: today,
+      });
+    }
+  }
+
+  /**
+   * Increment usage count for cached substrate mappings
+   */
+  async incrementSubstrateCacheUsage(originalNames: string[]): Promise<void> {
+    const list = this.sp.web.lists.getByTitle(LIBRARY_NAMES.SUBSTRATE_CACHE);
+    const today = new Date().toISOString();
+
+    for (const name of originalNames) {
+      const items = await list.items
+        .filter(`Title eq '${this.escapeOData(name)}'`)
+        .select("Id", "UsageCount")
+        .top(1)();
+
+      if (items.length > 0) {
+        await list.items.getById(items[0].Id).update({
+          [FIELDS.SUBSTRATE_CACHE.USAGE_COUNT]: (items[0].UsageCount || 0) + 1,
+          [FIELDS.SUBSTRATE_CACHE.LAST_USED]: today,
         });
       }
     }

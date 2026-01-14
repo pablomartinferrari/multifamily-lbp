@@ -280,6 +280,113 @@ describe('SummaryService', () => {
     });
   });
 
+  describe('classifyDataset - Component + Substrate Grouping', () => {
+    it('should group by component + substrate combination with separate fields', () => {
+      const readings = [
+        createReading('Door Frame', 0.5, { substrate: 'Wood' }),
+        createReading('Door Frame', 0.3, { substrate: 'Wood' }),
+        createReading('Door Frame', 0.4, { substrate: 'Metal' }),
+      ];
+
+      const result = service.classifyDataset(readings, 'UNITS');
+
+      // Should create two separate groups with component and substrate as separate fields
+      expect(result.uniqueComponents).toBe(2);
+      const groups = result.uniformComponents.map(c => ({ component: c.component, substrate: c.substrate }));
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Wood' });
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Metal' });
+    });
+
+    it('should keep readings without substrate as component-only group', () => {
+      const readings = [
+        createReading('Door Frame', 0.5, { substrate: 'Wood' }),
+        createReading('Door Frame', 0.3), // No substrate
+        createReading('Door Frame', 0.4), // No substrate
+      ];
+
+      const result = service.classifyDataset(readings, 'UNITS');
+
+      // Should create two groups: one with substrate "Wood" and one without
+      expect(result.uniqueComponents).toBe(2);
+      const groups = result.uniformComponents.map(c => ({ component: c.component, substrate: c.substrate }));
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Wood' });
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: undefined });
+    });
+
+    it('should store component and substrate as separate fields', () => {
+      const readings = createReadings('Window Sill', 45, 0.1).map(r => ({ ...r, substrate: 'Wood' }));
+
+      const result = service.classifyDataset(readings, 'UNITS');
+
+      expect(result.averageComponents).toHaveLength(1);
+      expect(result.averageComponents[0].component).toBe('Window Sill');
+      expect(result.averageComponents[0].substrate).toBe('Wood');
+    });
+
+    it('should group by normalizedComponent + substrate when both are available', () => {
+      const readings = [
+        createReading('door jamb', 0.5, { normalizedComponent: 'Door Frame', substrate: 'Wood' }),
+        createReading('door frame', 0.3, { normalizedComponent: 'Door Frame', substrate: 'Wood' }),
+        createReading('DOOR JAMB', 0.4, { normalizedComponent: 'Door Frame', substrate: 'Metal' }),
+      ];
+
+      const result = service.classifyDataset(readings, 'UNITS');
+
+      // Should create two groups with separate component and substrate fields
+      expect(result.uniqueComponents).toBe(2);
+      const groups = result.uniformComponents.map(c => ({ component: c.component, substrate: c.substrate }));
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Wood' });
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Metal' });
+    });
+
+    it('should handle same component with multiple substrates across AVERAGE threshold', () => {
+      const woodReadings = createReadings('Door', 45, 0.1).map(r => ({ ...r, substrate: 'Wood' }));
+      const metalReadings = createReadings('Door', 20, 0).map(r => ({ ...r, substrate: 'Metal' }));
+
+      const readings = [...woodReadings, ...metalReadings];
+      const result = service.classifyDataset(readings, 'UNITS');
+
+      // Door with Wood should be AVERAGE (45 readings), Door with Metal should be UNIFORM (20 readings)
+      expect(result.averageComponents).toHaveLength(1);
+      expect(result.averageComponents[0].component).toBe('Door');
+      expect(result.averageComponents[0].substrate).toBe('Wood');
+      expect(result.uniformComponents).toHaveLength(1);
+      expect(result.uniformComponents[0].component).toBe('Door');
+      expect(result.uniformComponents[0].substrate).toBe('Metal');
+    });
+
+    it('should use normalizedSubstrate when available', () => {
+      const readings = [
+        createReading('Door Frame', 0.5, { substrate: 'wd', normalizedSubstrate: 'Wood' }),
+        createReading('Door Frame', 0.3, { substrate: 'wood', normalizedSubstrate: 'Wood' }),
+        createReading('Door Frame', 0.4, { substrate: 'mtl', normalizedSubstrate: 'Metal' }),
+      ];
+
+      const result = service.classifyDataset(readings, 'UNITS');
+
+      // Should group by normalizedSubstrate with separate fields
+      expect(result.uniqueComponents).toBe(2);
+      const groups = result.uniformComponents.map(c => ({ component: c.component, substrate: c.substrate }));
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Wood' });
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Metal' });
+    });
+
+    it('should fall back to raw substrate when normalizedSubstrate is not set', () => {
+      const readings = [
+        createReading('Door Frame', 0.5, { substrate: 'Wood', normalizedSubstrate: 'Wood' }),
+        createReading('Door Frame', 0.3, { substrate: 'Plywood' }), // No normalizedSubstrate
+      ];
+
+      const result = service.classifyDataset(readings, 'UNITS');
+
+      // Should create two groups with separate substrate values
+      expect(result.uniqueComponents).toBe(2);
+      const groups = result.uniformComponents.map(c => ({ component: c.component, substrate: c.substrate }));
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Wood' });
+      expect(groups).toContainEqual({ component: 'Door Frame', substrate: 'Plywood' });
+    });
+  });
+
   describe('generateJobSummary', () => {
     it('should create job summary with both datasets', () => {
       const commonReadings = createReadings('Lobby Door', 10, 0);

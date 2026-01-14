@@ -456,8 +456,9 @@ R002,Window Sill,Beige,1.5`;
 
       expect(result.success).toBe(true);
       expect(result.readings).toHaveLength(2);
-      expect(result.readings[0].readingId).toBe('R001');
-      expect(result.readings[1].readingId).toBe('R002');
+      // Reading IDs have row index suffix appended for uniqueness
+      expect(result.readings[0].readingId).toBe('R001_0');
+      expect(result.readings[1].readingId).toBe('R002_1');
     });
 
     it('should handle CSV with different delimiters detected automatically', async () => {
@@ -469,6 +470,168 @@ R001,Door,White,0.5`;
       const result = await service.parseFile(buffer);
 
       expect(result.success).toBe(true);
+    });
+
+    it('should parse CSV with optional columns (substrate, location, room)', async () => {
+      const csv = `Reading ID,Component,Color,Lead Content,Substrate,Location,Room Type,Room Number
+R001,Door Frame,White,0.5,Wood,Unit 101,Bedroom,1
+R002,Window Sill,Beige,1.5,Metal,Unit 102,Kitchen,
+R003,Baseboard,Gray,0.3,,Unit 103,Living Room,1`;
+      const buffer = createCsvBuffer(csv);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      expect(result.readings).toHaveLength(3);
+      
+      // Check first reading has all optional fields
+      expect(result.readings[0].substrate).toBe('Wood');
+      expect(result.readings[0].location).toBe('Unit 101');
+      expect(result.readings[0].roomType).toBe('Bedroom');
+      expect(result.readings[0].roomNumber).toBe('1');
+      
+      // Check second reading with partial optional fields
+      expect(result.readings[1].substrate).toBe('Metal');
+      expect(result.readings[1].roomType).toBe('Kitchen');
+      expect(result.readings[1].roomNumber).toBeUndefined();
+      
+      // Check third reading with missing substrate
+      expect(result.readings[2].substrate).toBeUndefined();
+    });
+
+    it('should parse CSV with positive/negative lead values as text', async () => {
+      const csv = `Reading ID,Component,Color,Lead Content
+R001,Door Frame,White,Negative
+R002,Window Sill,Beige,Positive
+R003,Wall,Gray,N/A
+R004,Ceiling,White,0.8`;
+      const buffer = createCsvBuffer(csv);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      expect(result.readings).toHaveLength(4);
+      
+      // "Negative" should be parsed as 0
+      expect(result.readings[0].leadContent).toBe(0);
+      expect(result.readings[0].isPositive).toBe(false);
+      
+      // "Positive" should be parsed as slightly above threshold
+      expect(result.readings[1].leadContent).toBeGreaterThanOrEqual(1.0);
+      expect(result.readings[1].isPositive).toBe(true);
+      
+      // "N/A" should be parsed as 0
+      expect(result.readings[2].leadContent).toBe(0);
+      expect(result.readings[2].isPositive).toBe(false);
+      
+      // Numeric value should be parsed correctly
+      expect(result.readings[3].leadContent).toBe(0.8);
+      expect(result.readings[3].isPositive).toBe(false);
+    });
+
+    it('should parse CSV with lead content containing units', async () => {
+      const csv = `Reading ID,Component,Color,Lead Content
+R001,Door Frame,White,0.5 mg/cm²
+R002,Window Sill,Beige,1.5mg/cm2
+R003,Wall,Gray,<0.1`;
+      const buffer = createCsvBuffer(csv);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      expect(result.readings).toHaveLength(3);
+      
+      expect(result.readings[0].leadContent).toBe(0.5);
+      expect(result.readings[1].leadContent).toBe(1.5);
+      expect(result.readings[2].leadContent).toBe(0.1);
+    });
+
+    it('should handle CSV with empty rows gracefully', async () => {
+      const csv = `Reading ID,Component,Color,Lead Content
+R001,Door Frame,White,0.5
+
+R002,Window Sill,Beige,1.5
+
+`;
+      const buffer = createCsvBuffer(csv);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      // Empty rows should be skipped
+      expect(result.readings).toHaveLength(2);
+    });
+
+    it('should handle CSV with header row not on first line', async () => {
+      const csv = `XRF Inspection Report - All Shots
+Reading ID,Component,Color,Lead Content
+R001,Door Frame,White,0.5
+R002,Window Sill,Beige,1.5`;
+      const buffer = createCsvBuffer(csv);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      expect(result.readings).toHaveLength(2);
+      // Should warn about skipped title row
+      expect(result.warnings.some(w => w.includes('header row'))).toBe(true);
+    });
+
+    it('should handle large CSV file with many readings', async () => {
+      // Generate a CSV with 500 readings
+      const headers = 'Reading ID,Component,Color,Lead Content,Substrate';
+      const rows = Array.from({ length: 500 }, (_, i) => 
+        `R${String(i).padStart(4, '0')},Door Frame ${i % 10},White,${(Math.random() * 2).toFixed(2)},Wood`
+      );
+      const csv = [headers, ...rows].join('\n');
+      const buffer = createCsvBuffer(csv);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      expect(result.readings).toHaveLength(500);
+      expect(result.metadata.totalRows).toBe(500);
+    });
+
+    it('should correctly identify positive/negative readings from CSV', async () => {
+      const csv = `Reading ID,Component,Color,Lead Content
+R001,Door,White,0.9
+R002,Door,White,1.0
+R003,Door,White,1.1
+R004,Door,White,2.5`;
+      const buffer = createCsvBuffer(csv);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      
+      // 0.9 is below 1.0 threshold - negative
+      expect(result.readings[0].isPositive).toBe(false);
+      // 1.0 is at threshold - positive
+      expect(result.readings[1].isPositive).toBe(true);
+      // 1.1 is above threshold - positive
+      expect(result.readings[2].isPositive).toBe(true);
+      // 2.5 is above threshold - positive
+      expect(result.readings[3].isPositive).toBe(true);
+    });
+
+    it('should filter out calibration readings from CSV', async () => {
+      const csv = `Reading ID,Component,Color,Lead Content
+R001,Door Frame,White,0.5
+CAL,Calibrate,Black,1.1
+R002,Window Sill,Beige,1.5
+R003,Standard Check,Gray,1.0`;
+      const buffer = createCsvBuffer(csv);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      // Calibration rows should be filtered out
+      expect(result.readings).toHaveLength(2);
+      expect(result.readings[0].component).toBe('Door Frame');
+      expect(result.readings[1].component).toBe('Window Sill');
+      // Should warn about filtered calibration readings
+      expect(result.warnings.some(w => w.includes('calibration'))).toBe(true);
     });
   });
 

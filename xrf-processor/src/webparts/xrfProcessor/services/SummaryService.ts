@@ -56,15 +56,15 @@ export class SummaryService {
     readings: IXrfReading[],
     datasetType: "COMMON_AREA" | "UNITS"
   ): IDatasetSummary {
-    // Group readings by normalized component (or raw component if not normalized)
-    const byComponent = this.groupByComponent(readings);
+    // Group readings by normalized component + substrate combination
+    const groups = this.groupByComponentSubstrate(readings);
 
     const averageComponents: IAverageComponentSummary[] = [];
     const uniformComponents: IUniformComponentSummary[] = [];
     const nonUniformComponents: INonUniformComponentSummary[] = [];
 
-    for (const [component, componentReadings] of Object.entries(byComponent)) {
-      const classification = this.classifyComponent(component, componentReadings);
+    for (const group of groups) {
+      const classification = this.classifyComponent(group.component, group.substrate, group.readings);
 
       switch (classification.type) {
         case "AVERAGE":
@@ -81,10 +81,16 @@ export class SummaryService {
       }
     }
 
-    // Sort each category alphabetically by component name
-    averageComponents.sort((a, b) => a.component.localeCompare(b.component));
-    uniformComponents.sort((a, b) => a.component.localeCompare(b.component));
-    nonUniformComponents.sort((a, b) => a.component.localeCompare(b.component));
+    // Sort each category alphabetically by component name, then by substrate
+    const sortByComponentSubstrate = (a: { component: string; substrate?: string }, b: { component: string; substrate?: string }) => {
+      const compCompare = a.component.localeCompare(b.component);
+      if (compCompare !== 0) return compCompare;
+      return (a.substrate || "").localeCompare(b.substrate || "");
+    };
+    
+    averageComponents.sort(sortByComponentSubstrate);
+    uniformComponents.sort(sortByComponentSubstrate);
+    nonUniformComponents.sort(sortByComponentSubstrate);
 
     // Calculate totals
     const totalPositive = readings.filter((r) => r.isPositive).length;
@@ -94,7 +100,7 @@ export class SummaryService {
       totalReadings: readings.length,
       totalPositive,
       totalNegative: readings.length - totalPositive,
-      uniqueComponents: Object.keys(byComponent).length,
+      uniqueComponents: groups.length,
       averageComponents,
       uniformComponents,
       nonUniformComponents,
@@ -102,29 +108,39 @@ export class SummaryService {
   }
 
   /**
-   * Group readings by component name
+   * Group readings by component + substrate combination
    * Uses normalizedComponent if available, otherwise uses raw component
+   * Uses normalizedSubstrate if available, otherwise uses raw substrate
+   * Returns groups with separate component and substrate values for each group
    */
-  private groupByComponent(
+  private groupByComponentSubstrate(
     readings: IXrfReading[]
-  ): Record<string, IXrfReading[]> {
-    const groups: Record<string, IXrfReading[]> = {};
+  ): Array<{ component: string; substrate: string | undefined; readings: IXrfReading[] }> {
+    const groupMap: Record<string, { component: string; substrate: string | undefined; readings: IXrfReading[] }> = {};
 
     for (const reading of readings) {
       // Use normalized component if available, otherwise use raw component
       const component = reading.normalizedComponent || reading.component;
+      
+      // Use normalized substrate if available, otherwise use raw substrate
+      const substrate = reading.normalizedSubstrate || reading.substrate || undefined;
+      
+      // Create combined key for grouping purposes only
+      const groupKey = substrate 
+        ? `${component}|||${substrate}`
+        : component;
 
-      if (!groups[component]) {
-        groups[component] = [];
+      if (!groupMap[groupKey]) {
+        groupMap[groupKey] = { component, substrate, readings: [] };
       }
-      groups[component].push(reading);
+      groupMap[groupKey].readings.push(reading);
     }
 
-    return groups;
+    return Object.values(groupMap);
   }
 
   /**
-   * Classify a single component into one of the three categories
+   * Classify a single component + substrate combination into one of the three categories
    * Based on HUD/EPA guidelines:
    * - ≥40 readings: Average Components (use 2.5% threshold)
    * - <40 readings, all same: Uniform Components
@@ -132,6 +148,7 @@ export class SummaryService {
    */
   private classifyComponent(
     component: string,
+    substrate: string | undefined,
     readings: IXrfReading[]
   ): {
     type: "AVERAGE" | "UNIFORM" | "NON_UNIFORM";
@@ -155,6 +172,7 @@ export class SummaryService {
         type: "AVERAGE",
         summary: {
           component,
+          substrate,
           totalReadings: total,
           positiveCount,
           negativeCount,
@@ -171,6 +189,7 @@ export class SummaryService {
         type: "UNIFORM",
         summary: {
           component,
+          substrate,
           totalReadings: total,
           result: positiveCount > 0 ? "POSITIVE" : "NEGATIVE",
         } as IUniformComponentSummary,
@@ -182,6 +201,7 @@ export class SummaryService {
       type: "NON_UNIFORM",
       summary: {
         component,
+        substrate,
         totalReadings: total,
         positiveCount,
         negativeCount,
@@ -234,28 +254,33 @@ export class SummaryService {
 
   /**
    * Get all positive components across all categories
+   * Returns component names with substrate in parentheses if present
    */
   getAllPositiveComponents(summary: IDatasetSummary): string[] {
     const positives: string[] = [];
 
+    const formatComponentSubstrate = (component: string, substrate?: string): string => {
+      return substrate ? `${component} (${substrate})` : component;
+    };
+
     // Average components marked positive
     for (const comp of summary.averageComponents) {
       if (comp.result === "POSITIVE") {
-        positives.push(comp.component);
+        positives.push(formatComponentSubstrate(comp.component, comp.substrate));
       }
     }
 
     // Uniform components that are all positive
     for (const comp of summary.uniformComponents) {
       if (comp.result === "POSITIVE") {
-        positives.push(comp.component);
+        positives.push(formatComponentSubstrate(comp.component, comp.substrate));
       }
     }
 
     // Non-uniform components with any positive readings
     for (const comp of summary.nonUniformComponents) {
       if (comp.positiveCount > 0) {
-        positives.push(comp.component);
+        positives.push(formatComponentSubstrate(comp.component, comp.substrate));
       }
     }
 

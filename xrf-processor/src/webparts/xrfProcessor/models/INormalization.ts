@@ -32,6 +32,20 @@ export interface IComponentNormalization {
 }
 
 /**
+ * A single substrate normalization mapping
+ */
+export interface ISubstrateNormalization {
+  /** Original substrate name from Excel */
+  originalName: string;
+  /** Normalized/canonical name */
+  normalizedName: string;
+  /** Confidence score (0-1) */
+  confidence: number;
+  /** Source of the normalization */
+  source: "AI" | "CACHE" | "MANUAL";
+}
+
+/**
  * Progress update during normalization process
  */
 export interface INormalizationProgress {

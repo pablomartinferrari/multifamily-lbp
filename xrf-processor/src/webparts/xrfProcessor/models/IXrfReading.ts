@@ -15,6 +15,8 @@ export interface IXrfReading {
   // === CALCULATED FIELDS (added by system) ===
   /** AI-normalized component name */
   normalizedComponent?: string;
+  /** AI-normalized substrate name */
+  normalizedSubstrate?: string;
   /** true if leadContent >= 1.0 mg/cm² */
   isPositive: boolean;
 

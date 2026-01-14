@@ -42,6 +42,16 @@ export interface IComponentCacheItem {
   LastUsed: string;
 }
 
+export interface ISubstrateCacheItem {
+  Id: number;
+  Title: string; // Original substrate name
+  NormalizedName: string;
+  Confidence: number;
+  Source: "AI" | "Manual";
+  UsageCount: number;
+  LastUsed: string;
+}
+
 // ============================================
 // Input Types (for creating/updating)
 // ============================================
@@ -62,6 +72,13 @@ export interface IProcessedResultMetadata {
 }
 
 export interface IComponentMapping {
+  originalName: string;
+  normalizedName: string;
+  confidence: number;
+  source: "AI" | "Manual";
+}
+
+export interface ISubstrateMapping {
   originalName: string;
   normalizedName: string;
   confidence: number;

@@ -173,16 +173,21 @@ export const AllShotsReport: React.FC<IAllShotsReportProps> = ({
     },
     {
       key: "component",
-      name: "Component",
+      name: "Component (Substrate)",
       fieldName: "normalizedComponent",
-      minWidth: 120,
-      maxWidth: 180,
+      minWidth: 160,
+      maxWidth: 220,
       isResizable: true,
-      onRender: (item: IXrfReading) => (
-        <span title={item.component}>
-          {item.normalizedComponent || item.component}
-        </span>
-      ),
+      onRender: (item: IXrfReading) => {
+        const component = item.normalizedComponent || item.component;
+        const substrate = item.normalizedSubstrate || item.substrate;
+        const display = substrate ? `${component} (${substrate})` : component;
+        return (
+          <span title={`${item.component}${item.substrate ? ` on ${item.substrate}` : ''}`}>
+            {display}
+          </span>
+        );
+      },
     },
     {
       key: "unitNumber",
@@ -227,7 +232,7 @@ export const AllShotsReport: React.FC<IAllShotsReportProps> = ({
       minWidth: 80,
       maxWidth: 120,
       isResizable: true,
-      onRender: (item: IXrfReading) => item.substrate || "-",
+      onRender: (item: IXrfReading) => item.normalizedSubstrate || item.substrate || "-",
     },
     {
       key: "color",
@@ -266,18 +271,23 @@ export const AllShotsReport: React.FC<IAllShotsReportProps> = ({
 
   // Export to Excel
   const handleExportExcel = (): void => {
-    const exportData = filteredReadings.map((r) => ({
-      "Reading #": r.readingId,
-      "Component": r.normalizedComponent || r.component,
-      "Unit #": r.unitNumber || "",
-      "Room Type": r.roomType || "",
-      "Room #": r.roomNumber || "",
-      "Side": r.side || "",
-      "Substrate": r.substrate || "",
-      "Color": r.color,
-      "PbC (mg/cm²)": r.leadContent,
-      "Result": r.isPositive ? "POSITIVE" : "Negative",
-    }));
+    const exportData = filteredReadings.map((r) => {
+      const component = r.normalizedComponent || r.component;
+      const substrate = r.normalizedSubstrate || r.substrate;
+      return {
+        "Reading #": r.readingId,
+        "Component (Substrate)": substrate ? `${component} (${substrate})` : component,
+        "Component (Raw)": r.component,
+        "Substrate (Raw)": r.substrate || "",
+        "Unit #": r.unitNumber || "",
+        "Room Type": r.roomType || "",
+        "Room #": r.roomNumber || "",
+        "Side": r.side || "",
+        "Color": r.color,
+        "PbC (mg/cm²)": r.leadContent,
+        "Result": r.isPositive ? "POSITIVE" : "Negative",
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
@@ -307,18 +317,23 @@ export const AllShotsReport: React.FC<IAllShotsReportProps> = ({
 
   // Export to CSV
   const handleExportCSV = (): void => {
-    const exportData = filteredReadings.map((r) => ({
-      "Reading #": r.readingId,
-      "Component": r.normalizedComponent || r.component,
-      "Unit #": r.unitNumber || "",
-      "Room Type": r.roomType || "",
-      "Room #": r.roomNumber || "",
-      "Side": r.side || "",
-      "Substrate": r.substrate || "",
-      "Color": r.color,
-      "PbC (mg/cm²)": r.leadContent,
-      "Result": r.isPositive ? "POSITIVE" : "Negative",
-    }));
+    const exportData = filteredReadings.map((r) => {
+      const component = r.normalizedComponent || r.component;
+      const substrate = r.normalizedSubstrate || r.substrate;
+      return {
+        "Reading #": r.readingId,
+        "Component (Substrate)": substrate ? `${component} (${substrate})` : component,
+        "Component (Raw)": r.component,
+        "Substrate (Raw)": r.substrate || "",
+        "Unit #": r.unitNumber || "",
+        "Room Type": r.roomType || "",
+        "Room #": r.roomNumber || "",
+        "Side": r.side || "",
+        "Color": r.color,
+        "PbC (mg/cm²)": r.leadContent,
+        "Result": r.isPositive ? "POSITIVE" : "Negative",
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const csv = XLSX.utils.sheet_to_csv(worksheet);
@@ -451,7 +466,7 @@ export const AllShotsReport: React.FC<IAllShotsReportProps> = ({
       {/* Export Info */}
       <div className={styles.exportInfo}>
         <Text variant="small">
-          Exports include: Reading #, Component, Unit #, Room Type, Room #, Side, Substrate, Color, PbC Content, Result
+          Exports include: Reading #, Component (Substrate), Component (Raw), Substrate (Raw), Unit #, Room Type, Room #, Side, Color, PbC Content, Result
         </Text>
       </div>
     </div>

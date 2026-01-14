@@ -186,12 +186,17 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
   const stats = React.useMemo(() => {
     const total = readings.length;
     const positive = readings.filter((r) => r.isPositive).length;
-    const uniqueComponents = new Set(
-      readings.map((r) => r.normalizedComponent || r.component)
+    // Count unique component + substrate combinations
+    const uniqueComponentSubstrate = new Set(
+      readings.map((r) => {
+        const component = r.normalizedComponent || r.component;
+        const substrate = r.normalizedSubstrate || r.substrate;
+        return substrate ? `${component} (${substrate})` : component;
+      })
     ).size;
     const changedCount = changedReadingIds.size;
 
-    return { total, positive, uniqueComponents, changedCount };
+    return { total, positive, uniqueComponentSubstrate, changedCount };
   }, [readings, changedReadingIds]);
 
   // Start editing a cell
@@ -316,12 +321,14 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
   const handleExportExcel = (): void => {
     const exportData = readings.map((r) => ({
       "Reading #": r.rawRow?.originalReadingId || r.readingId,
-      "Component": r.normalizedComponent || r.component,
+      "Component (Raw)": r.component,
+      "Component (Normalized)": r.normalizedComponent || r.component,
+      "Substrate (Raw)": r.substrate || "",
+      "Substrate (Normalized)": r.normalizedSubstrate || r.substrate || "",
       "Unit #": r.unitNumber || "",
       "Room Type": r.roomType || "",
       "Room #": r.roomNumber || "",
       "Side": r.side || "",
-      "Substrate": r.substrate || "",
       "Color": r.color,
       "PbC (mg/cm²)": r.leadContent,
       "Result": r.isPositive ? "POSITIVE" : "Negative",
@@ -454,6 +461,16 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
       isResizable: true,
       onRender: (item: IXrfReading) => renderEditableCell(item, "substrate", item.substrate),
     },
+    {
+      key: "normalizedSubstrate",
+      name: "Norm. Substrate",
+      fieldName: "normalizedSubstrate",
+      minWidth: 100,
+      maxWidth: 140,
+      isResizable: true,
+      onRender: (item: IXrfReading) =>
+        renderEditableCell(item, "normalizedSubstrate", item.normalizedSubstrate || item.substrate),
+    },
   ];
 
   // Filter options
@@ -490,8 +507,8 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
           <span className={styles.statLabel}>Negative</span>
         </div>
         <div className={styles.statItem}>
-          <span className={styles.statValue}>{stats.uniqueComponents}</span>
-          <span className={styles.statLabel}>Components</span>
+          <span className={styles.statValue}>{stats.uniqueComponentSubstrate}</span>
+          <span className={styles.statLabel}>Component/Substrate</span>
         </div>
         {stats.changedCount > 0 && (
           <div className={styles.statItem}>
