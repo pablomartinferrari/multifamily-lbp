@@ -13,6 +13,8 @@ import {
   Text,
 } from "@fluentui/react";
 import styles from "./FileUpload.module.scss";
+import { getJobsApiService } from "../../services/JobsApiService";
+import type { IJobsApiJob } from "../../models/IJobsApi";
 
 export interface IFileUploadProps {
   /** Called when user submits the form */
@@ -35,6 +37,8 @@ const areaTypeOptions: IDropdownOption[] = [
 /** Accepted file extensions */
 const ACCEPTED_EXTENSIONS = [".xlsx", ".csv"];
 
+const JOB_LOOKUP_DEBOUNCE_MS = 400;
+
 export const FileUpload: React.FC<IFileUploadProps> = ({
   onSubmit,
   onLoadExisting,
@@ -47,8 +51,47 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
   const [areaType, setAreaType] = React.useState<"Units" | "Common Areas">("Units");
   const [error, setError] = React.useState<string | undefined>(undefined);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [jobLookup, setJobLookup] = React.useState<IJobsApiJob | null>(null);
+  const [jobLookupLoading, setJobLookupLoading] = React.useState(false);
+  const [jobLookupError, setJobLookupError] = React.useState<string | null>(null);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Debounced lookup against 2ETC Jobs API (jobId = Job Number)
+  React.useEffect(() => {
+    const v = jobNumber.trim();
+    if (!v) {
+      setJobLookup(null);
+      setJobLookupError(null);
+      setJobLookupLoading(false);
+      return;
+    }
+    const id = parseInt(v, 10);
+    if (Number.isNaN(id)) {
+      setJobLookup(null);
+      setJobLookupError(null);
+      setJobLookupLoading(false);
+      return;
+    }
+
+    const t = window.setTimeout(() => {
+      setJobLookupLoading(true);
+      setJobLookupError(null);
+      getJobsApiService()
+        .getJobByJobId(v)
+        .then((job) => {
+          setJobLookup(job);
+          setJobLookupError(null);
+        })
+        .catch((e) => {
+          setJobLookup(null);
+          setJobLookupError(e instanceof Error ? e.message : "Could not reach jobs API");
+        })
+        .finally(() => setJobLookupLoading(false));
+    }, JOB_LOOKUP_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(t);
+  }, [jobNumber]);
 
   const validateAndSetFile = (selectedFile: File | undefined): void => {
     setError(undefined);
@@ -180,10 +223,42 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
         required
         value={jobNumber}
         onChange={(_, v) => setJobNumber(v || "")}
-        placeholder="Enter job number (e.g., JOB-2024-001)"
+        placeholder="Enter 2ETC Job ID (e.g., 287459)"
         disabled={isProcessing}
         className={styles.field}
+        description="Links to 2ETC jobs. Enter the numeric Job ID from the 2ETC system."
       />
+
+      {/* 2ETC Job lookup result */}
+      {jobLookupLoading && jobNumber.trim() && (
+        <MessageBar messageBarType={MessageBarType.info}>
+          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+            <Icon iconName="Search" />
+            <Text variant="small">Looking up job in 2ETC…</Text>
+          </Stack>
+        </MessageBar>
+      )}
+      {!jobLookupLoading && jobLookup && (
+        <MessageBar messageBarType={MessageBarType.success}>
+          <Stack tokens={{ childrenGap: 4 }}>
+            <Text variant="small" className={styles.jobLinkTitle}>
+              Linked to 2ETC Job {jobLookup.jobId}
+            </Text>
+            <Text variant="small">
+              Client: {jobLookup.client.name}
+              {jobLookup.facilityName ? ` · Facility: ${jobLookup.facilityName}` : ""}
+              {jobLookup.facilityAddress ? ` · ${jobLookup.facilityAddress}` : ""}
+            </Text>
+          </Stack>
+        </MessageBar>
+      )}
+      {!jobLookupLoading && jobLookupError && jobNumber.trim() && (
+        <MessageBar messageBarType={MessageBarType.warning}>
+          <Text variant="small">
+            Could not verify job in 2ETC ({jobLookupError}). You can still process using this job number.
+          </Text>
+        </MessageBar>
+      )}
 
       {/* Area Type */}
       <Dropdown

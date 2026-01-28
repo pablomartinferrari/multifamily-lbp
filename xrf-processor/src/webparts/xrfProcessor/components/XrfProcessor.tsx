@@ -700,7 +700,7 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
           </Stack>
           <TooltipHost content="Ask AI for help using this application">
             <IconButton
-              iconProps={{ iconName: "Sparkle" }}
+              iconProps={{ iconName: "Robot" }}
               title="AI Help Assistant"
               ariaLabel="Open AI help assistant"
               onClick={() => setHelpPanelOpen(true)}

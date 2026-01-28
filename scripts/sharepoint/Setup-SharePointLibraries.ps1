@@ -6,7 +6,8 @@
     This script creates the following SharePoint artifacts:
     - XRF-SourceFiles: Document library for uploaded Excel files
     - XRF-ProcessedResults: Document library for JSON summaries
-    - XRF-ComponentCache: List for AI normalization cache
+    - XRF-ComponentCache: List for AI component normalization cache
+    - XRF-SubstrateCache: List for AI substrate normalization cache
     
     Uses app-only authentication with client ID and secret.
 
@@ -281,6 +282,55 @@ try {
 
 #endregion
 
+#region Create XRF-SubstrateCache List
+
+$substrateCacheList = "XRF-SubstrateCache"
+Write-Host "`n--- Creating $substrateCacheList ---" -ForegroundColor Cyan
+
+if (Test-ListExists -ListName $substrateCacheList) {
+    Write-Host "$substrateCacheList already exists." -ForegroundColor Yellow
+    if (-not $SkipExisting) {
+        $response = Read-Host "Continue and add/verify columns? (y/n)"
+        if ($response -ne 'y') {
+            Write-Host "Skipping $substrateCacheList." -ForegroundColor Gray
+        }
+    }
+} else {
+    New-PnPList -Title $substrateCacheList -Template GenericList | Out-Null
+    Write-Host "Created list: $substrateCacheList" -ForegroundColor Green
+}
+
+# Add columns to XRF-SubstrateCache
+Write-Host "Adding columns to $substrateCacheList..." -ForegroundColor Yellow
+
+Add-FieldIfNotExists -ListName $substrateCacheList -DisplayName "NormalizedName" -InternalName "NormalizedName" -FieldType "Text" -AdditionalParams @{ Required = $true }
+
+Add-FieldIfNotExists -ListName $substrateCacheList -DisplayName "Confidence" -InternalName "Confidence" -FieldType "Number"
+
+Add-FieldIfNotExists -ListName $substrateCacheList -DisplayName "Source" -InternalName "Source" -FieldType "Choice" -AdditionalParams @{ Choices = @("AI", "Manual") }
+
+Add-FieldIfNotExists -ListName $substrateCacheList -DisplayName "UsageCount" -InternalName "UsageCount" -FieldType "Number"
+
+# Set default value for UsageCount
+$usageField = Get-PnPField -List $substrateCacheList -Identity "UsageCount" -ErrorAction SilentlyContinue
+if ($usageField -and -not $usageField.DefaultValue) {
+    Set-PnPField -List $substrateCacheList -Identity "UsageCount" -Values @{ DefaultValue = "1" } | Out-Null
+    Write-Host "    Set default value for UsageCount: 1" -ForegroundColor Green
+}
+
+Add-FieldIfNotExists -ListName $substrateCacheList -DisplayName "LastUsed" -InternalName "LastUsed" -FieldType "DateTime"
+
+# Index Title for fast lookups
+Write-Host "    Indexing Title column..." -ForegroundColor Yellow
+try {
+    Set-PnPField -List $substrateCacheList -Identity "Title" -Values @{ Indexed = $true } | Out-Null
+    Write-Host "    Title indexed successfully." -ForegroundColor Green
+} catch {
+    Write-Host "    Could not index Title (may already be indexed): $_" -ForegroundColor Gray
+}
+
+#endregion
+
 #region Summary
 
 Write-Host "`n========================================" -ForegroundColor Cyan
@@ -297,6 +347,9 @@ Write-Host "    - JobNumber (indexed), AreaType, SourceFileLink" -ForegroundColo
 Write-Host "    - TotalReadings, UniqueComponents, LeadPositiveCount, LeadPositivePercent" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  $componentCacheList (List)" -ForegroundColor Green
+Write-Host "    - Title (indexed), NormalizedName, Confidence, Source, UsageCount, LastUsed" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  $substrateCacheList (List)" -ForegroundColor Green
 Write-Host "    - Title (indexed), NormalizedName, Confidence, Source, UsageCount, LastUsed" -ForegroundColor Gray
 Write-Host ""
 

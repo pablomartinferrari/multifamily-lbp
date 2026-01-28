@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     This script validates:
-    - All three SharePoint artifacts exist (XRF-SourceFiles, XRF-ProcessedResults, XRF-ComponentCache)
+    - All four SharePoint artifacts exist (XRF-SourceFiles, XRF-ProcessedResults, XRF-ComponentCache, XRF-SubstrateCache)
     - All required columns are present with correct types
     - Indexed columns are configured properly
     - Performs read/write/delete test to confirm permissions
@@ -152,6 +152,17 @@ $expectedSchema = @{
         IndexedColumns = @("JobNumber")
     }
     "XRF-ComponentCache" = @{
+        Type = "GenericList"
+        Columns = @(
+            @{ Name = "NormalizedName"; Type = "Text"; Required = $true }
+            @{ Name = "Confidence"; Type = "Number" }
+            @{ Name = "Source"; Type = "Choice" }
+            @{ Name = "UsageCount"; Type = "Number" }
+            @{ Name = "LastUsed"; Type = "DateTime" }
+        )
+        IndexedColumns = @("Title")
+    }
+    "XRF-SubstrateCache" = @{
         Type = "GenericList"
         Columns = @(
             @{ Name = "NormalizedName"; Type = "Text"; Required = $true }

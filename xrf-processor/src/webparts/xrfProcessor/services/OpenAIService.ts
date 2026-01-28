@@ -36,6 +36,8 @@ interface IOpenAIResponse {
  */
 export class OpenAIService {
   private config: IOpenAIConfig;
+  private lastRequestTime: number = 0;
+  private readonly minRequestInterval: number = 1000; // Minimum 1 second between requests
 
   constructor(config: Partial<IOpenAIConfig> = {}) {
     this.config = { ...DEFAULT_OPENAI_CONFIG, ...config };
@@ -176,30 +178,66 @@ Return ONLY the JSON object, no other text.`;
     systemPrompt: string,
     userPrompt: string
   ): Promise<string> {
-    const { url, headers, body } = this.buildRequest(systemPrompt, userPrompt);
+    // Rate limiting: ensure minimum interval between requests
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      const waitTime = this.minRequestInterval - timeSinceLastRequest;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    this.lastRequestTime = Date.now();
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
+    const maxRetries = 3;
+    let lastError: Error;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`${this.config.provider} API error:`, response.status, errorText);
-      throw new Error(
-        `${this.config.provider === "openai" ? "OpenAI" : "Azure OpenAI"} API error: ${response.status} ${response.statusText}`
-      );
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const { url, headers, body } = this.buildRequest(systemPrompt, userPrompt);
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`${this.config.provider} API error:`, response.status, errorText);
+
+          // Handle rate limiting (429) with retry
+          if (response.status === 429 && attempt < maxRetries) {
+            const retryDelay = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s
+            console.warn(`Rate limited. Retrying in ${retryDelay}ms... (attempt ${attempt + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+            continue;
+          }
+
+          // Handle other errors or final retry attempt
+          throw new Error(
+            `${this.config.provider === "openai" ? "OpenAI" : "Azure OpenAI"} API error: ${response.status} ${response.statusText}`
+          );
+        }
+
+        const data = (await response.json()) as IOpenAIResponse;
+        const content = data.choices[0]?.message?.content;
+
+        if (!content) {
+          throw new Error("No response content from AI");
+        }
+
+        return content;
+      } catch (error) {
+        lastError = error as Error;
+
+        // Don't retry on non-rate-limit errors or if this is the last attempt
+        if (!(error as Error).message.includes("429") || attempt === maxRetries) {
+          throw error;
+        }
+      }
     }
 
-    const data = (await response.json()) as IOpenAIResponse;
-    const content = data.choices[0]?.message?.content;
-
-    if (!content) {
-      throw new Error("No response content from AI");
-    }
-
-    return content;
+    // This should never be reached, but just in case
+    throw new Error(`OpenAI API request failed after ${maxRetries + 1} attempts: ${lastError!.message}`);
   }
 
   /**

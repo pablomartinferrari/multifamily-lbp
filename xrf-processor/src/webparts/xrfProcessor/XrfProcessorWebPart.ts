@@ -43,6 +43,8 @@ export default class XrfProcessorWebPart extends BaseClientSideWebPart<IXrfProce
   private _sp: SPFI = undefined!;
 
   public render(): void {
+    this.domElement.style.width = '100%';
+    this.domElement.style.boxSizing = 'border-box';
     const element: React.ReactElement<IXrfProcessorProps> = React.createElement(
       XrfProcessor,
       {

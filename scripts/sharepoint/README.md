@@ -66,7 +66,8 @@ $Config = @{
 This creates:
 - **XRF-SourceFiles** - Document library for uploaded Excel files
 - **XRF-ProcessedResults** - Document library for JSON summaries
-- **XRF-ComponentCache** - List for AI normalization cache
+- **XRF-ComponentCache** - List for AI component normalization cache
+- **XRF-SubstrateCache** - List for AI substrate normalization cache
 
 ### 4. Verify Setup
 
@@ -141,6 +142,19 @@ Caches AI-normalized component names for performance.
 | Column | Type | Notes |
 |--------|------|-------|
 | Title | Text | Original component name, **Indexed** |
+| NormalizedName | Text | Required, canonical name |
+| Confidence | Number | AI confidence 0-1 |
+| Source | Choice | AI, Manual |
+| UsageCount | Number | Default: 1 |
+| LastUsed | DateTime | Last access timestamp |
+
+### XRF-SubstrateCache (List)
+
+Caches AI-normalized substrate (surface material) names for performance.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| Title | Text | Original substrate name, **Indexed** |
 | NormalizedName | Text | Required, canonical name |
 | Confidence | Number | AI confidence 0-1 |
 | Source | Choice | AI, Manual |

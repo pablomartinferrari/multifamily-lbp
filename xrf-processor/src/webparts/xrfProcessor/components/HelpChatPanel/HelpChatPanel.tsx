@@ -133,7 +133,7 @@ const onRenderHeader: IRenderFunction<IPanelProps> = (props, defaultRender) => {
       }}
     >
       <Icon
-        iconName="Sparkle"
+        iconName="Robot"
         styles={{
           root: {
             fontSize: 20,
@@ -304,7 +304,7 @@ export const HelpChatPanel: React.FC<IHelpChatPanelProps> = ({
                 resizable={false}
               />
             </Stack.Item>
-            <Stack vertical tokens={{ childrenGap: 4 }}>
+            <Stack tokens={{ childrenGap: 4 }}>
               <PrimaryButton
                 text="Send"
                 onClick={() => handleSend()}

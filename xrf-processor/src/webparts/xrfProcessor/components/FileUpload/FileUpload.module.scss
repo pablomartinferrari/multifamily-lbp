@@ -1,7 +1,8 @@
 @import '~@fluentui/react/dist/sass/References.scss';
 
 .container {
-  max-width: 500px;
+  width: 100%;
+  box-sizing: border-box;
   padding: 24px;
   background: $ms-color-white;
   border-radius: 8px;
@@ -93,6 +94,10 @@
   :global(.ms-Label) {
     font-weight: 600;
   }
+}
+
+.jobLinkTitle {
+  font-weight: 600;
 }
 
 .progressSection {

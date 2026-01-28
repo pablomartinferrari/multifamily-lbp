@@ -1,249 +1,352 @@
-# multifamily-lbp
+# XRF Lead Paint Processor
 
-Repository: https://github.com/pablomartinferrari/multifamily-lbp
+A SharePoint Framework (SPFx) web part for processing XRF lead paint inspection data with AI-powered component normalization and HUD/EPA compliant reporting.
 
-Author / Owner: https://github.com/pablomartinferrari
+![SharePoint Framework](https://img.shields.io/badge/SPFx-1.20.0-green.svg)
+![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 
-Last pushed: 2026-01-09
+## 🎯 Overview
 
-Languages: TypeScript (primary), JavaScript, PowerShell, SCSS
+The XRF Lead Paint Processor helps property managers and lead paint inspectors:
 
-Overview
---------
-This repository contains a SharePoint-focused solution (SPFx-style) for processing and summarizing XRF (X‑Ray Fluorescence) inspection data for multifamily properties. It implements end-to-end functionality for ingesting XRF machine output (XLSX / CSV), applying AI-assisted column mapping and component normalization, allowing human review and edits, and producing HUD/EPA-style classification summaries and exportable reports.
+- **Process XRF Inspection Data** - Upload Excel (.xlsx) or CSV files from XRF devices
+- **AI-Powered Normalization** - Automatically standardize component and substrate names using OpenAI/Azure OpenAI
+- **HUD/EPA Compliant Reports** - Generate summaries following federal guidelines (40-reading threshold, 2.5% rule)
+- **SharePoint Integration** - Store all data securely in SharePoint lists with full audit trail
 
-Purpose and business problem
-----------------------------
-Many multifamily property inspections produce XRF machine output in non-standard formats. The business problems addressed by this solution are:
-- Heterogeneous XRF data formats across machines/vendors require manual mapping before analysis.
-- Component names and labels are inconsistent and must be normalized for accurate classification.
-- Inspectors and analysts need a reviewable, auditable workflow prior to summary generation and reporting.
-- Operations require Excel export and filtering of the full set of inspection “shots” and a results summary compatible with HUD/EPA classification rules.
+## ✨ Features
 
-What this solution does (user-facing)
-------------------------------------
-- Accepts XRF output files (XLSX and CSV) via a drag-and-drop upload UI.
-- Automatically proposes column mappings for incoming files using AI-assisted heuristics.
-- Normalizes component names (AI-assisted) and caches normalizations for consistency and performance.
-- Provides an editable review grid where users can accept, reject, or edit AI normalizations before finalizing.
-- Resolves upload conflicts (options to replace or merge uploads).
-- Produces summary classification outputs (HUD/EPA style) and a results summary UI showing categories such as Average / Uniform / Non‑Uniform.
-- Exposes an “All Shots” report view with filtering and Excel export.
-- Uses a hierarchical location model (Unit → Room Type → Room → Side) to organize inspection results.
+### Core Functionality
+- 📤 **File Upload** - Drag-and-drop Excel/CSV files with automatic column detection
+- 🤖 **AI Normalization** - Intelligent grouping of component variants (e.g., "dr jamb" → "Door Jamb")
+- 📊 **Smart Grouping** - Aggregates readings by Component + Substrate combinations
+- 📋 **Three Summary Categories**:
+  - **Average Components** (≥40 readings) - Statistical 2.5% threshold
+  - **Uniform Components** (<40 readings, all same result)
+  - **Non-Uniform Components** (<40 readings, mixed results)
 
-Components
-----------
-The repository contains multiple components and services implemented primarily in TypeScript plus supporting PowerShell and SCSS assets. Based on the repository contents and commit history, the main logical components are:
+### Data Management
+- ✏️ **Inline Editing** - Edit readings directly in the data grid
+- 📝 **Bulk Edit** - Change multiple readings at once
+- 🔄 **Merge/Replace** - Add new data to existing jobs or replace entirely
+- 📥 **Load Existing Data** - Retrieve previously uploaded data without re-uploading
 
-- Web client (SPFx web part(s) and UI)
-  - File upload UI (drag & drop, validation)
-  - AI review UI (grid with accept/reject/edit)
-  - Results summary UI and All Shots report view
-  - Export button(s) for Excel
+### Export & Reporting
+- 📑 **Excel Export** - Multi-sheet workbooks with all summary categories
+- 📄 **CSV Export** - Simple format for external tools
+- 🔍 **All Shots Report** - Searchable list of every individual reading
 
-- SharePoint integration
-  - SharePoint service layer using PnP JS for CRUD against SharePoint lists/libraries
-  - PowerShell scripts to provision SharePoint libraries and other site artifacts
+### Help & Support
+- ✨ **AI Help Assistant** - Built-in chatbot for instant help (powered by OpenAI)
+- 📚 **Comprehensive Documentation** - Architecture, implementation guides, and tutorials
 
-- Backend / services (implemented client-side or server-side depending on the repo)
-  - Excel parsing service supporting XLSX and CSV parsing
-  - Summary service implementing HUD/EPA classification logic
-  - AI integration for:
-    - Column mapping (per-machine formats)
-    - Component name normalization (with a caching layer)
+## 🏗️ Architecture
 
-- State and flow management
-  - Client-side state that supports E2E flow, conflict resolution, and merge/replace behaviors
+```
+multifamily-lbp/
+├── xrf-processor/           # SPFx Web Part
+│   ├── src/
+│   │   └── webparts/
+│   │       └── xrfProcessor/
+│   │           ├── components/     # React UI components
+│   │           ├── services/       # Business logic services
+│   │           ├── models/         # TypeScript interfaces
+│   │           ├── config/         # Configuration & prompts
+│   │           └── constants/      # SharePoint list names
+│   └── config/              # SPFx build configuration
+├── scripts/
+│   └── sharepoint/          # PowerShell setup scripts
+└── docs/
+    ├── ARCHITECTURE.md      # System architecture
+    ├── REQUIREMENTS.md      # Business requirements
+    ├── IMPLEMENTATION.md    # Technical implementation
+    ├── plan/                # Build block plans
+    └── tutorials/           # Video script tutorials
+```
 
-- Tests
-  - The repository contains automated tests; commit messages indicate a test suite with 146 passing tests (see repository test files for details).
+### Key Services
 
-Deployment and installation
----------------------------
-Note: The repository implements an SPFx-style SharePoint solution and includes PowerShell provisioning scripts. The precise tooling and versioning are contained inside the repository (package.json, gulpfile, etc.). The steps below are guidance based on repository contents; verify version-specific commands in the repo files before executing.
+| Service | Description |
+|---------|-------------|
+| `ExcelParserService` | Parses Excel/CSV files, detects columns, extracts readings |
+| `ComponentNormalizerService` | AI-powered component name standardization with caching |
+| `SubstrateNormalizerService` | AI-powered substrate name standardization with caching |
+| `SummaryService` | HUD/EPA compliant classification and aggregation |
+| `SharePointService` | CRUD operations for all SharePoint lists |
+| `OpenAIService` | OpenAI/Azure OpenAI API integration |
 
-Prerequisites (assumptions — see Configuration and Prerequisites)
-- Node.js and npm compatible with the SPFx toolchain used in this repo (check package.json / .nvmrc).
-- Gulp and the SPFx toolchain installed globally if required by this project (confirm in package.json).
-- Access to a SharePoint Online tenant (tenant or site App Catalog) with permission to deploy SPFx packages.
-- Azure / OpenAI (or equivalent) credentials if AI integrations are enabled — see Configuration.
+## 📋 Prerequisites
 
-Typical installation & deployment flow (high-level)
-1. Clone the repository:
-   - git clone https://github.com/pablomartinferrari/multifamily-lbp.git
+- **Node.js** 18.17.1 (required for SPFx 1.20)
+- **SharePoint Online** tenant with app catalog
+- **OpenAI API Key** or **Azure OpenAI** deployment
+- **PowerShell 7+** (for setup scripts)
+- **PnP PowerShell** module
 
-2. Install dependencies:
-   - npm ci
-   - (or) npm install
-   - Confirm any tool versions (Node, npm) specified in the repo.
+## 🚀 Quick Start
 
-3. Build and test locally:
-   - npm run build (or the build script defined in package.json)
-   - npm test (run the test suite; repository includes automated tests)
+### 1. Clone the Repository
 
-4. SPFx production bundle and package (assumption: standard SPFx tasks present):
-   - gulp bundle --ship
-   - gulp package-solution --ship
-   - The .sppkg file should be found in the sharepoint/solution (or equivalent) folder.
+```bash
+git clone https://github.com/your-org/multifamily-lbp.git
+cd multifamily-lbp
+```
 
-5. Deploy to SharePoint:
-   - Upload the generated .sppkg package to the tenant or site App Catalog
-   - Approve any required permissions in the App Catalog
-   - Add the app to the target site and add the web part to a page
+### 2. Set Up SharePoint Lists
 
-6. Provision lists / libraries:
-   - Run the included PowerShell provisioning scripts (found in the repo) to create SharePoint lists and libraries and set required permissions. Confirm execution policy and authentication (Connect-PnPOnline, etc.).
+```powershell
+cd scripts/sharepoint
 
-7. Configure AI/Service secrets (see Configuration).
+# Copy and configure settings
+cp config.example.ps1 config.ps1
+# Edit config.ps1 with your SharePoint URL and credentials
 
-Because file/folder names and exact scripts are in the repository, always consult package.json, any README or script files in the repo root, and PowerShell scripts before running commands.
+# Run setup
+./Setup-SharePointLibraries.ps1
+```
 
-Configuration and prerequisites
--------------------------------
-Required or recommended items (derived from repository contents and implementation pattern):
+This creates the required SharePoint lists:
+- `XRF-SourceFiles` - Uploaded inspection files
+- `XRF-Readings` - Processed reading data
+- `XRF-ProcessingJobs` - Job metadata and status
+- `XRF-ComponentCache` - Cached component normalizations
+- `XRF-SubstrateCache` - Cached substrate normalizations
 
-- Node.js and npm
-  - Verify exact supported Node version in the repository (package.json / .nvmrc)
-- Gulp (if used by the project) and SPFx toolchain
-  - If SPFx tasks exist, follow SPFx recommended tooling versions for your project
-- SharePoint Online access
-  - Tenant App Catalog or Site App Catalog where the package can be deployed
-  - SharePoint permissions to create lists/libraries and install apps
-- PnP PowerShell
-  - Required to run provisioning scripts (PowerShell modules must be installed)
-- AI integration credentials
-  - Environment variables or secure store for the AI provider (OpenAI or similar)
-  - The repo contains AI integration code — configure provider keys and endpoints per repository instructions or environment variable usage
-- Storage and performance
-  - If the project caches AI normalization, ensure the caching mechanism (in-repo) is backed by local storage or a persisted store per the implementation
-- Browser support
-  - Modern browsers supported by SPFx web parts; confirm in project configuration
+### 3. Install Dependencies
 
-Important assumptions (explicit)
-- The repository implements a SharePoint Framework (SPFx) web part approach (commit messages reference SPFx). Exact SPFx version is not assumed here — consult the repository files for exact versions.
-- AI integration requires external API keys and outbound network access; those credentials are not stored in this repository and must be provisioned by the deployer.
-- PowerShell provisioning scripts exist and are used to create SharePoint libraries; these require administrator privileges and proper authentication.
+```bash
+cd xrf-processor
+npm install
+```
 
-Permissions and security considerations
----------------------------------------
-- SharePoint permissions:
-  - The solution will perform list/library CRUD through PnP JS and provisioning scripts. The account used to run provisioning and the identity used by the web part must have appropriate SharePoint permissions.
-  - Grant least privilege required for runtime operations (read/append/delete on the specific lists/libraries instead of tenant-wide admin where possible).
+### 4. Configure the Web Part
 
-- Secrets and API keys:
-  - AI provider keys (OpenAI or similar) and any other external service keys must be stored in a secure configuration store (Azure Key Vault, SharePoint property bag with restricted permissions, or environment variables on build/deploy pipelines).
-  - Do not commit keys to the repository or check them into source control.
+Edit `src/webparts/xrfProcessor/XrfProcessorWebPart.ts` or configure via property pane:
 
-- Data protection and PII:
-  - XRF data and location hierarchies could contain sensitive property information. Ensure controls are in place for:
-    - Data retention policies
-    - Access control on the SharePoint libraries holding uploaded files and results
-    - Logging and auditing of who reviewed/edited AI-normalizations
+```typescript
+// OpenAI Configuration
+provider: "openai" | "azure"
+apiKey: "your-api-key"
+model: "gpt-4o-mini"  // or Azure deployment name
 
-- AI considerations:
-  - AI-based normalization is probabilistic. Maintain an audit trail for each AI decision (what the AI proposed, who reviewed it, and final status).
-  - Consider rate-limiting and quota management for AI services to avoid unexpected costs.
+// Azure OpenAI (if using Azure)
+azureEndpoint: "https://your-resource.openai.azure.com"
+azureApiVersion: "2024-02-15-preview"
+```
 
-Operational notes and limitations
---------------------------------
-- AI normalization and mappings:
-  - AI proposals are suggestions and require human review. The repository includes a review UI for this reason.
-  - Caching is used to improve consistency; caches need eviction/refresh policies in production.
+### 5. Run Locally
 
-- Input formats:
-  - XLSX and CSV are supported (per commit messages). Variants with complex formatting, merged cells, or non-standard encodings may require pre-processing.
+```bash
+gulp serve
+```
 
-- Conflict resolution:
-  - The upload flow supports merge or replace strategies; test the behavior with representative datasets to confirm that merges are correct for your workflow.
+Open the SharePoint workbench and add the web part.
 
-- Performance:
-  - Large Excel files or very large numbers of shots may require pagination or server-side processing depending on dataset size and client capabilities.
+### 6. Build for Production
 
-- Tests:
-  - The repository contains automated tests (commit notes indicate 146 tests passing). Run the test suite after changes.
+```bash
+gulp bundle --ship
+gulp package-solution --ship
+```
 
-- Unsupported / not implemented here:
-  - If you require server-side hosting beyond SharePoint (API backends, databases) this repository appears to be focused on a SharePoint/SPFx client-side solution; extend with server APIs only if supported by your environment and after reviewing the code.
+Deploy `sharepoint/solution/xrf-processor.sppkg` to your app catalog.
 
-Troubleshooting
----------------
-Common problems and diagnostic steps (guided by the repository's structure and typical SPFx/PowerShell patterns):
+## ⚙️ Configuration
 
-1. Build or dependency failures
-   - Check Node.js and npm versions against package.json/.nvmrc.
-   - Run `npm ci` to get a clean dependency set.
-   - Inspect errors for specific package versions and consult package.json scripts.
+### OpenAI Setup
 
-2. SPFx packaging issues
-   - Ensure gulp and SPFx toolchain versions match project expectations.
-   - Confirm `gulp bundle --ship` and `gulp package-solution --ship` succeed locally before uploading the .sppkg.
-   - If the package upload to App Catalog fails, check App Catalog permissions and package dependencies.
+The web part supports both standard OpenAI and Azure OpenAI:
 
-3. PowerShell provisioning scripts fail
-   - Confirm that PnP.PowerShell module is installed and authenticated to the target tenant (`Connect-PnPOnline`).
-   - Run scripts with an account that has rights to create lists and libraries.
-   - Review script parameters and execution policy (Set-ExecutionPolicy) if scripts are blocked.
+**Standard OpenAI:**
+```json
+{
+  "provider": "openai",
+  "apiKey": "sk-...",
+  "model": "gpt-4o-mini",
+  "temperature": 0.3,
+  "maxTokens": 2000
+}
+```
 
-4. AI integration errors or rate limits
-   - Verify API keys and environment variables.
-   - Check connectivity from the environment executing AI calls.
-   - Monitor provider dashboards for rate limits/quota issues.
+**Azure OpenAI:**
+```json
+{
+  "provider": "azure",
+  "apiKey": "your-azure-key",
+  "model": "your-deployment-name",
+  "azureEndpoint": "https://your-resource.openai.azure.com",
+  "azureApiVersion": "2024-02-15-preview"
+}
+```
 
-5. Excel parsing problems (CSV/XLSX)
-   - Validate the input file encoding and structure.
-   - For malformed Excel files, try opening and re-saving in Excel to normalize structure.
-   - For CSVs, confirm delimiter and character encoding (UTF-8 recommended).
+### SharePoint Lists
 
-6. Incorrect classification or normalization
-   - Inspect the AI proposal and the audit trail stored by the system.
-   - Adjust cache entries or review normalization rules if systematic misnormalizations appear.
+All list names are defined in `src/webparts/xrfProcessor/constants/LibraryNames.ts`:
 
-7. Missing UI components on SharePoint page
-   - Confirm the app is installed and the web part is added to the page.
-   - Check browser console for runtime errors (missing resources or permission denied).
-   - Ensure the deployed package matches the current client code (version mismatch).
+```typescript
+export const LIBRARIES = {
+  SOURCE_FILES: "XRF-SourceFiles",
+  READINGS: "XRF-Readings",
+  PROCESSING_JOBS: "XRF-ProcessingJobs",
+  COMPONENT_CACHE: "XRF-ComponentCache",
+  SUBSTRATE_CACHE: "XRF-SubstrateCache",
+};
+```
 
-If the repository includes a dedicated logs or diagnostics module, consult that output for further clues.
+## 📖 Usage
 
-Ownership and support
----------------------
-Primary GitHub owner: https://github.com/pablomartinferrari
+### Basic Workflow
 
-Repository issue tracker
-- Use this repository's Issues page to report bugs or request enhancements: https://github.com/pablomartinferrari/multifamily-lbp/issues
+1. **Upload File** - Select Excel/CSV file, enter Job Number and Area Type
+2. **AI Processing** - System normalizes component and substrate names
+3. **Review Data** - Check readings, make edits if needed
+4. **Generate Summary** - Create HUD/EPA compliant report
+5. **Export** - Download Excel/CSV for records
 
-Repository contributors
-- Commits in this repository indicate contributions from the owner and other author identities; the repo history is the canonical record of authorship and changes.
+### HUD/EPA Classification Rules
 
-Support expectations
-- For code-level issues, open a ticket in the repository and include:
-  - Steps to reproduce
-  - Expected vs. actual behavior
-  - Relevant log snippets and error messages
-  - Environment details (Node version, SharePoint tenant, browser)
+| Category | Criteria | Result Determination |
+|----------|----------|---------------------|
+| **Average** | ≥40 readings | POSITIVE if >2.5% positive |
+| **Uniform** | <40 readings, all same | Result matches all readings |
+| **Non-Uniform** | <40 readings, mixed | Requires individual review |
 
-Notes and assumptions (explicit)
-- This README is based solely on repository contents and commit history, including commit descriptions that reference:
-  - SPFx setup, SharePoint provisioning PowerShell, PnP JS service code, Excel parser (XLSX/CSV), summary service (HUD/EPA classification), OpenAI integration for normalization, UI features (upload, review grid, summary), and test counts.
-- Exact SPFx version, package/command names, file paths, and runtime configuration details are not inferred beyond what is present in the repo; consult package.json, manifest files, and PowerShell scripts in this repository for precise commands and version requirements.
-- AI provider details (provider name, endpoint) are not presumed; the repository mentions OpenAI integration in commit messages — check repository configuration files and environment variable usage for the actual provider and required keys.
+### Lead Content Threshold
 
-Where to look next in the repository
------------------------------------
-- package.json — for precise build/test scripts and dependency versions
-- sharepoint/ or src/ folders — for web part code, manifests, and component implementations
-- scripts or provisioning folders — for PowerShell scripts that create SharePoint libraries
-- docs or tests folders — for documentation fragments and test cases
-- any config or .env.example files — for environment variables, AI keys, and runtime configuration patterns
+- **Positive**: ≥ 1.0 mg/cm²
+- **Negative**: < 1.0 mg/cm²
 
-If you want, I can:
-- Extract exact setup and build commands from the repo (package.json, gulpfile, and PowerShell scripts) and produce a concrete step-by-step install & deploy section.
-- Produce a simple runbook for common operational tasks (re-deploy, rollback, license/consent steps) using the repo scripts.
+## 🧪 Testing
 
-## Copilot usage notes
+```bash
+cd xrf-processor
 
-This document is the authoritative description of this solution.
-When answering questions:
-- Prefer this README over code inference
-- Treat AI normalization as advisory and human-reviewed
-- Do not assume server-side processing unless explicitly stated
+# Run all tests
+npm test
+
+# Run with coverage
+npm run test:coverage
+
+# Run specific test file
+npm test -- --testPathPattern=SummaryService
+
+# Watch mode
+npm run test:watch
+```
+
+### Test Coverage
+
+- `ExcelParserService` - File parsing, CSV support, column detection
+- `SummaryService` - HUD/EPA classification logic
+- `ComponentNormalizerService` - AI normalization with caching
+- `SubstrateNormalizerService` - Substrate normalization
+- `OpenAIService` - API integration
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and component overview |
+| [REQUIREMENTS.md](docs/REQUIREMENTS.md) | Business requirements and specifications |
+| [IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | Technical implementation details |
+| [Tutorials](docs/tutorials/) | Video script tutorials for end users |
+| [Build Plans](docs/plan/) | Step-by-step implementation plans |
+
+## 🔧 Development
+
+### Project Structure
+
+```
+xrf-processor/src/webparts/xrfProcessor/
+├── components/
+│   ├── XrfProcessor.tsx          # Main orchestrator
+│   ├── FileUpload/               # File upload UI
+│   ├── DataReviewGrid/           # Reading editor
+│   ├── ResultsSummary/           # Summary display
+│   ├── AllShotsReport/           # All readings list
+│   ├── AINormalizationReview/    # Normalization review
+│   ├── UploadConflictDialog/     # Merge/Replace dialog
+│   └── HelpChatPanel/            # AI help assistant
+├── services/
+│   ├── ExcelParserService.ts     # File parsing
+│   ├── SharePointService.ts      # SharePoint CRUD
+│   ├── SummaryService.ts         # HUD/EPA logic
+│   ├── ComponentNormalizerService.ts
+│   ├── SubstrateNormalizerService.ts
+│   └── OpenAIService.ts          # AI integration
+├── models/                        # TypeScript interfaces
+├── config/                        # OpenAI prompts, help context
+└── constants/                     # SharePoint list names
+```
+
+### Adding New Features
+
+1. Create service in `services/` with corresponding `.test.ts`
+2. Add models in `models/`
+3. Create UI component in `components/`
+4. Wire up in `XrfProcessor.tsx`
+5. Update documentation
+
+### Code Style
+
+- TypeScript strict mode
+- ESLint with SPFx rules
+- Fluent UI React components
+- Jest for testing
+
+## 📦 Deployment
+
+### App Catalog Deployment
+
+1. Build the package:
+   ```bash
+   gulp bundle --ship
+   gulp package-solution --ship
+   ```
+
+2. Upload `sharepoint/solution/xrf-processor.sppkg` to your tenant app catalog
+
+3. Deploy to all sites or specific sites
+
+4. Add the web part to your SharePoint page
+
+### Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.2.0 | Jan 2026 | Substrate normalization, CSV support, AI help assistant |
+| 1.1.0 | Dec 2025 | Component normalization, caching, merge/replace |
+| 1.0.0 | Nov 2025 | Initial release |
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## ⚠️ Disclaimer
+
+**THIS CODE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.**
+
+This tool is designed to assist with lead paint inspection data processing but does not replace professional judgment. Always verify results and consult with qualified professionals for lead paint compliance decisions.
+
+## 🙏 Acknowledgments
+
+- [SharePoint Framework](https://docs.microsoft.com/en-us/sharepoint/dev/spfx/sharepoint-framework-overview)
+- [PnP/PnPjs](https://pnp.github.io/pnpjs/)
+- [Fluent UI React](https://developer.microsoft.com/en-us/fluentui)
+- [SheetJS](https://sheetjs.com/) for Excel/CSV parsing
+- [OpenAI](https://openai.com/) for AI normalization
+
+---
+
+<p align="center">
+  Made with ❤️ for lead paint safety
+</p>
