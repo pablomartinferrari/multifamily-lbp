@@ -7,7 +7,8 @@ export type ProcessingStep =
   | "PARSING"
   | "NORMALIZING"
   | "REVIEWING"
-  | "EDITING"      // New: Review and edit parsed data
+  | "EDITING"      // Review and edit parsed data
+  | "EDITING_COMPLETE"  // User marked step complete; offer upload other type or generate report
   | "SUMMARIZING"
   | "STORING"
   | "COMPLETE"
@@ -46,6 +47,7 @@ export const STEP_DESCRIPTIONS: Record<ProcessingStep, string> = {
   NORMALIZING: "Normalizing component names with AI...",
   REVIEWING: "Review AI suggestions",
   EDITING: "Review and edit data",
+  EDITING_COMPLETE: "Choose next step",
   SUMMARIZING: "Generating HUD/EPA summary...",
   STORING: "Saving results to SharePoint...",
   COMPLETE: "Processing complete!",
@@ -62,6 +64,7 @@ export const STEP_PROGRESS: Record<ProcessingStep, number> = {
   NORMALIZING: 40,
   REVIEWING: 55,
   EDITING: 70,
+  EDITING_COMPLETE: 72,
   SUMMARIZING: 80,
   STORING: 90,
   COMPLETE: 100,

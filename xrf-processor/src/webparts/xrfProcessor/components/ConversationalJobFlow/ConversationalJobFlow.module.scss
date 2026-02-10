@@ -1,0 +1,110 @@
+@import '~@fluentui/react/dist/sass/References.scss';
+
+.container {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* One card with rounded border: prompt + input + button all inside */
+.conversationBlock {
+  display: block;
+  width: 100%;
+  border: 1px solid $ms-color-neutralLight;
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin-bottom: 24px;
+  background: #ffffff;
+  box-sizing: border-box;
+
+  .messageText,
+  .messageText * {
+    background: transparent !important;
+  }
+}
+
+.messageText {
+  margin-bottom: 16px;
+  padding-right: 8px;
+}
+
+.messageTextLoading {
+  opacity: 0.85;
+}
+
+.stepContent {
+  margin-top: 0;
+  padding-top: 0;
+  border: none;
+  background: transparent;
+}
+
+/* Reply text inside the card – part of the conversation, no colored bar */
+.replyText {
+  background: transparent;
+  margin-bottom: 0;
+}
+
+.skipLink {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.dropZone {
+  border: 2px dashed $ms-color-neutralTertiary;
+  border-radius: 8px;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: $ms-color-neutralLighterAlt;
+
+  &:hover {
+    border-color: $ms-color-themePrimary;
+    background-color: $ms-color-themeLighterAlt;
+  }
+
+  &.dragging {
+    border-color: $ms-color-themePrimary;
+    background-color: $ms-color-themeLighter;
+    border-style: solid;
+  }
+
+  &.hasFile {
+    border-color: $ms-color-green;
+    background-color: rgba(16, 124, 16, 0.05);
+    cursor: default;
+  }
+}
+
+.field {
+  :global(.ms-Label) {
+    font-weight: 600;
+  }
+}
+
+.jobStatusCard {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 16px;
+  background: $ms-color-neutralLighterAlt;
+  border-radius: 8px;
+  margin-top: 12px;
+}
+
+.statusReady {
+  color: $ms-color-green;
+}
+
+.statusMissing {
+  color: $ms-color-neutralTertiary;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+}

@@ -8,6 +8,7 @@ import {
 } from "../config/ExcelColumnMapping";
 import { PROCESSING } from "../constants/LibraryNames";
 import { AIColumnMapperService, IAIColumnMapping } from "./AIColumnMapperService";
+import { convertCsvToXlsx, isCsvFileName } from "./csvToXlsx";
 
 // ============================================
 // Result Types
@@ -39,6 +40,14 @@ export interface IParseMetadata {
   usedAIMapping?: boolean;
   /** AI mapping confidence (if AI was used) */
   aiMappingConfidence?: number;
+  /** Skipped: calibration / standard readings (excluded from grid) */
+  skippedCalibration?: number;
+  /** Skipped: junk rows (missing required data for a valid shot) */
+  skippedJunk?: number;
+  /** Why junk rows were skipped (no reading ID is not considered junk) */
+  skippedJunkReasons?: { noComponent: number; noLeadContent: number };
+  /** Per-row details for junk so user can fix source and re-upload */
+  skippedJunkRows?: Array<{ row: number; reason: "noComponent" | "noLeadContent" }>;
 }
 
 export type ParseProgressCallback = (
@@ -125,10 +134,32 @@ export class ExcelParserService {
 
       // Convert to JSON with headers
       // We read it as a 2D array first to find the header row
-      const rawData = XLSX.utils.sheet_to_json<any[]>(sheet, {
+      let rawData = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
         header: 1, // Get as 2D array
         defval: "",
       });
+
+      // Viken/Pb200i exports can have a conservative !ref; extend range to read all data rows (e.g. 5710+)
+      const MIN_VIKEN_DATA_ROWS = 4000;
+      if (rawData.length > 0 && rawData.length < MIN_VIKEN_DATA_ROWS) {
+        const firstCell = rawData[0] && Array.isArray(rawData[0]) ? String((rawData[0] as unknown[])[0] || "").toLowerCase() : "";
+        const looksLikeViken =
+          firstCell.includes("company") ||
+          firstCell.includes("model") ||
+          firstCell.includes("viken") ||
+          firstCell.includes("pb200") ||
+          firstCell.includes("serial");
+        if (looksLikeViken && sheet["!ref"]) {
+          const r = XLSX.utils.decode_range(sheet["!ref"]);
+          r.e.r = Math.max(r.e.r, 5999); // 0-based, so up to 6000 rows
+          const extendedRef = XLSX.utils.encode_range(r);
+          rawData = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+            header: 1,
+            defval: "",
+            range: extendedRef,
+          });
+        }
+      }
 
       if (!rawData || rawData.length === 0) {
         return {
@@ -140,48 +171,81 @@ export class ExcelParserService {
         };
       }
 
-      // Find the header row (sometimes row 1 is just a title like "All Shots")
+      // Find the header row. Pb200i/Viken exports use: rows 1–5 metadata (Company, Model, Serial Num, etc.),
+      // row 6 empty, row 7 = column headers (Reading #, Concentration, Result, COMPONENT, COLOR, …), row 8+ = data.
+      const MAX_HEADER_SCAN_ROWS = 25;
+      const VIKEN_HEADER_ROW_INDEX = 6; // Excel row 7 (0-based 6)
+      const firstRow = rawData[0];
+      const firstCell = firstRow && Array.isArray(firstRow) ? String(firstRow[0] || "").toLowerCase() : "";
+      const looksLikeVikenMetadata =
+        firstCell.includes("company") ||
+        firstCell.includes("model") ||
+        firstCell.includes("viken") ||
+        firstCell.includes("pb200") ||
+        firstCell.includes("serial");
+
       let headerRowIndex = 0;
       let headers: string[] = [];
+      let bestMatchCount = 0;
 
-      for (let i = 0; i < Math.min(rawData.length, 5); i++) {
+      for (let i = 0; i < Math.min(rawData.length, MAX_HEADER_SCAN_ROWS); i++) {
         const row = rawData[i];
         if (!row || !Array.isArray(row)) continue;
 
-        // Count how many of our known column names match this row
         const matchCount = row.filter((cell) => {
           if (typeof cell !== "string") return false;
           const val = cell.toLowerCase().trim();
           return (
             DEFAULT_COLUMN_MAPPING.readingId.some((n) => n.toLowerCase() === val) ||
             DEFAULT_COLUMN_MAPPING.component.some((n) => n.toLowerCase() === val) ||
-            DEFAULT_COLUMN_MAPPING.leadContent.some((n) => n.toLowerCase() === val)
+            DEFAULT_COLUMN_MAPPING.leadContent.some((n) => n.toLowerCase() === val) ||
+            DEFAULT_COLUMN_MAPPING.color.some((n) => n.toLowerCase() === val)
           );
         }).length;
 
-        if (matchCount >= 2) {
-          // Found it!
+        if (matchCount >= 2 && matchCount > bestMatchCount) {
+          bestMatchCount = matchCount;
           headerRowIndex = i;
           headers = row.map((h) => String(h || "").trim());
-          break;
         }
       }
 
-      // If we didn't find a clear header row, assume row 0 but warn
+      // If file looks like Viken/Pb200i (metadata in row 1), prefer Excel row 7 (index 6) when it has enough matches
+      if (looksLikeVikenMetadata && rawData.length > VIKEN_HEADER_ROW_INDEX) {
+        const row7 = rawData[VIKEN_HEADER_ROW_INDEX];
+        if (row7 && Array.isArray(row7)) {
+          const row7MatchCount = row7.filter((cell) => {
+            if (typeof cell !== "string") return false;
+            const val = cell.toLowerCase().trim();
+            return (
+              DEFAULT_COLUMN_MAPPING.readingId.some((n) => n.toLowerCase() === val) ||
+              DEFAULT_COLUMN_MAPPING.component.some((n) => n.toLowerCase() === val) ||
+              DEFAULT_COLUMN_MAPPING.leadContent.some((n) => n.toLowerCase() === val) ||
+              DEFAULT_COLUMN_MAPPING.color.some((n) => n.toLowerCase() === val)
+            );
+          }).length;
+          if (row7MatchCount >= 2 && (headerRowIndex < VIKEN_HEADER_ROW_INDEX || row7MatchCount >= bestMatchCount)) {
+            headerRowIndex = VIKEN_HEADER_ROW_INDEX;
+            headers = row7.map((h) => String(h || "").trim());
+            bestMatchCount = row7MatchCount;
+          }
+        }
+      }
+
       if (headers.length === 0) {
-        headers = rawData[0].map((h: any) => String(h || "").trim());
+        headers = (rawData[0] as unknown[]).map((h: unknown) => String(h || "").trim());
         warnings.push("Could not clearly identify header row. Assuming first row contains headers.");
       } else if (headerRowIndex > 0) {
-        warnings.push(`Detected header row at row ${headerRowIndex + 1} (skipped ${headerRowIndex} title row(s))`);
+        warnings.push(`Detected header row at row ${headerRowIndex + 1} (${bestMatchCount} columns matched, skipped ${headerRowIndex} row(s) above)`);
       }
 
       // Now convert the rest of the data to objects using the detected headers
-      const jsonData: Record<string, any>[] = [];
+      const jsonData: Record<string, unknown>[] = [];
       for (let i = headerRowIndex + 1; i < rawData.length; i++) {
         const rowData = rawData[i];
         if (!rowData || !Array.isArray(rowData)) continue;
 
-        const obj: Record<string, any> = {};
+        const obj: Record<string, unknown> = {};
         let hasData = false;
         for (let j = 0; j < headers.length; j++) {
           if (headers[j]) {
@@ -276,23 +340,33 @@ export class ExcelParserService {
       // Parse each row with progress updates
       let rowNumber = headerRowIndex + 2; // Excel rows start at 1, header is at headerRowIndex + 1
       let calibrationCount = 0;
+      const junkReasons = { noComponent: 0, noLeadContent: 0 };
+      const skippedJunkRows: Array<{ row: number; reason: "noComponent" | "noLeadContent" }> = [];
 
       for (let i = 0; i < jsonData.length; i++) {
-        const row = jsonData[i];
-        const parseResult = this.parseRow(row, rowNumber, detectedColumns, i);
+        try {
+          const row = jsonData[i];
+          const parseResult = this.parseRow(row, rowNumber, detectedColumns, i);
 
-        if (parseResult.isCalibration) {
-          calibrationCount++;
-        } else if (parseResult.isJunk) {
-          // Just ignore
-        } else if (parseResult.reading) {
-          readings.push(parseResult.reading);
-        } else if (parseResult.error) {
-          errors.push(parseResult.error);
-        }
+          if (parseResult.isCalibration) {
+            calibrationCount++;
+          } else if (parseResult.isJunk && parseResult.junkReason) {
+            junkReasons[parseResult.junkReason]++;
+            skippedJunkRows.push({ row: rowNumber, reason: parseResult.junkReason });
+          } else if (parseResult.reading) {
+            readings.push(parseResult.reading);
+          } else if (parseResult.error) {
+            errors.push(parseResult.error);
+          }
 
-        if (parseResult.warning) {
-          warnings.push(parseResult.warning);
+          if (parseResult.warning) {
+            warnings.push(parseResult.warning);
+          }
+        } catch (rowError) {
+          errors.push({
+            row: rowNumber,
+            message: `Row failed: ${rowError instanceof Error ? rowError.message : String(rowError)}`,
+          });
         }
 
         rowNumber++;
@@ -307,8 +381,14 @@ export class ExcelParserService {
       // Final progress update
       if (onProgress) onProgress(jsonData.length, jsonData.length, "parsing");
 
+      const junkCount = junkReasons.noComponent + junkReasons.noLeadContent;
       if (calibrationCount > 0) {
         warnings.push(`Filtered out ${calibrationCount} calibration/non-component reading(s).`);
+      }
+      if (junkCount > 0) {
+        warnings.push(
+          `Skipped ${junkCount} junk row(s): ${junkReasons.noComponent} no component, ${junkReasons.noLeadContent} no valid lead value.`
+        );
       }
 
       return {
@@ -325,6 +405,10 @@ export class ExcelParserService {
           unmappedColumns,
           usedAIMapping,
           aiMappingConfidence,
+          skippedCalibration: calibrationCount,
+          skippedJunk: junkCount,
+          skippedJunkReasons: junkReasons,
+          skippedJunkRows: skippedJunkRows.length > 0 ? skippedJunkRows : undefined,
         },
       };
     } catch (error) {
@@ -344,14 +428,19 @@ export class ExcelParserService {
   }
 
   /**
-   * Parse a File object (convenience method)
+   * Parse a File object (convenience method).
+   * CSV files are converted to XLSX in memory before parsing, since direct CSV
+   * reading has been unreliable; the rest of the pipeline always sees XLSX.
    */
   async parseFileObject(
     file: File,
     onProgress?: ParseProgressCallback,
     options: IParseOptions = {}
   ): Promise<IParseResult> {
-    const buffer = await file.arrayBuffer();
+    let buffer = await file.arrayBuffer();
+    if (isCsvFileName(file.name)) {
+      buffer = convertCsvToXlsx(buffer);
+    }
     return this.parseFile(buffer, onProgress, options);
   }
 
@@ -371,11 +460,17 @@ export class ExcelParserService {
     const colorCol = findColumnMatch(headers, this.columnMapping.color);
     if (colorCol) detected.color = colorCol;
 
-    const leadContentCol = findColumnMatch(
-      headers,
-      this.columnMapping.leadContent
-    );
-    if (leadContentCol) detected.leadContent = leadContentCol;
+    // Prefer numeric column (Concentration) over Result when both exist - Result can be TRUE/FALSE or "Negative"/"Positive"
+    const concentrationCol = findColumnMatch(headers, ["Concentration", "Concentra", "Lead Content", "PbC", "PbC (mg/cm²)", "Lead (mg/cm²)", "mg/cm²", "mg/cm2"]);
+    const resultCol = findColumnMatch(headers, ["Result", "RESULT", "XRF Result", "Lead Result"]);
+    const anyLeadCol = findColumnMatch(headers, this.columnMapping.leadContent);
+    if (concentrationCol) {
+      detected.leadContent = concentrationCol;
+    } else if (resultCol) {
+      detected.leadContent = resultCol;
+    } else if (anyLeadCol) {
+      detected.leadContent = anyLeadCol;
+    }
 
     // Optional fields - Location hierarchy
     const locationCol = findColumnMatch(headers, this.columnMapping.location);
@@ -424,7 +519,14 @@ export class ExcelParserService {
     rowNumber: number,
     columns: Record<string, string>,
     rowIndex: number
-  ): { reading?: IXrfReading; error?: IParseError; warning?: string; isCalibration?: boolean; isJunk?: boolean } {
+  ): {
+    reading?: IXrfReading;
+    error?: IParseError;
+    warning?: string;
+    isCalibration?: boolean;
+    isJunk?: boolean;
+    junkReason?: "noComponent" | "noLeadContent";
+  } {
     try {
       // Extract required fields
       const rawReadingId = String(row[columns.readingId] || "").trim();
@@ -445,25 +547,18 @@ export class ExcelParserService {
       // 2. Parse lead content early to help with junk detection
       const leadContent = this.parseLeadContent(leadContentRaw);
 
-      // 3. Detect junk rows (No component)
-      // Per latest instruction: "if there's no component, let's ignore the row"
+      // 3. Detect junk rows (no component = not a real shot)
       if (!rawComponent) {
-        return { isJunk: true };
+        return { isJunk: true, junkReason: "noComponent" };
       }
 
-      // 4. Validate required fields for real data
-      if (!rawReadingId) {
-        return { isJunk: true }; // Reading ID is mandatory for a valid shot
-      }
-
-      // 5. Ensure we have a lead value
+      // 4. No valid lead value (number or Pos/Neg) = not usable
       if (leadContent === undefined) {
-        // If it's not a valid number/pos/neg, it's not a usable reading
-        return { isJunk: true };
+        return { isJunk: true, junkReason: "noLeadContent" };
       }
 
-      // 6. Ensure readingId is unique by appending row index
-      const readingId = `${rawReadingId}_${rowIndex}`;
+      // 5. Reading ID: use provided or generate from row so we never treat "missing ID" as junk
+      const readingId = rawReadingId ? `${rawReadingId}_${rowIndex}` : `Row_${rowIndex}`;
 
       // Build reading object
       const unitNumber = columns.unitNumber
@@ -525,6 +620,11 @@ export class ExcelParserService {
   private parseLeadContent(value: unknown): number | undefined {
     if (typeof value === "number") {
       return value;
+    }
+
+    // Excel may export Result column as boolean (TRUE/FALSE)
+    if (typeof value === "boolean") {
+      return value ? LEAD_POSITIVE_THRESHOLD + 0.05 : 0;
     }
 
     if (typeof value === "string") {
@@ -637,7 +737,7 @@ export class ExcelParserService {
   /**
    * Check if a row is a calibration reading
    */
-  private isCalibrationRow(component: string, leadContent?: any, readingId?: string): boolean {
+  private isCalibrationRow(component: string, leadContent?: unknown, readingId?: string): boolean {
     const lowerComp = component.toLowerCase().trim();
     const lowerId = (readingId || "").toLowerCase().trim();
     

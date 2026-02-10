@@ -1,0 +1,89 @@
+@import '~@fluentui/react/dist/sass/References.scss';
+
+.container {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.section {
+  background: $ms-color-white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.sectionTitle {
+  color: $ms-color-themePrimary;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+}
+
+.jobRow {
+  margin-bottom: 4px;
+}
+
+.jobStatusCard {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 16px;
+  background: $ms-color-neutralLighterAlt;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.statusItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+
+  .statusReady {
+    color: $ms-color-green;
+  }
+
+  .statusMissing {
+    color: $ms-color-neutralTertiary;
+  }
+}
+
+.generateSection {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid $ms-color-neutralLight;
+}
+
+.dropZone {
+  border: 2px dashed $ms-color-neutralTertiary;
+  border-radius: 8px;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: $ms-color-neutralLighterAlt;
+
+  &:hover {
+    border-color: $ms-color-themePrimary;
+    background-color: $ms-color-themeLighterAlt;
+  }
+
+  &.dragging {
+    border-color: $ms-color-themePrimary;
+    background-color: $ms-color-themeLighter;
+    border-style: solid;
+  }
+
+  &.hasFile {
+    border-color: $ms-color-green;
+    background-color: rgba(16, 124, 16, 0.05);
+    cursor: default;
+  }
+}
+
+.field {
+  :global(.ms-Label) {
+    font-weight: 600;
+  }
+}

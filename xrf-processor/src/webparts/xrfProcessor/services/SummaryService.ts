@@ -24,6 +24,20 @@ export class SummaryService {
    * @param unitReadings - Readings from units/apartments (or undefined)
    * @param aiNormalizationsApplied - Count of AI-normalized components
    */
+  /** Build an empty dataset summary for a type (used when no readings for that type) */
+  private emptyDatasetSummary(datasetType: "COMMON_AREA" | "UNITS"): IDatasetSummary {
+    return {
+      datasetType,
+      totalReadings: 0,
+      totalPositive: 0,
+      totalNegative: 0,
+      uniqueComponents: 0,
+      averageComponents: [],
+      uniformComponents: [],
+      nonUniformComponents: [],
+    };
+  }
+
   generateJobSummary(
     jobNumber: string,
     sourceFileName: string,
@@ -39,11 +53,11 @@ export class SummaryService {
       commonAreaSummary:
         commonAreaReadings && commonAreaReadings.length > 0
           ? this.classifyDataset(commonAreaReadings, "COMMON_AREA")
-          : undefined,
+          : this.emptyDatasetSummary("COMMON_AREA"),
       unitsSummary:
         unitReadings && unitReadings.length > 0
           ? this.classifyDataset(unitReadings, "UNITS")
-          : undefined,
+          : this.emptyDatasetSummary("UNITS"),
     };
   }
 
@@ -82,7 +96,7 @@ export class SummaryService {
     }
 
     // Sort each category alphabetically by component name, then by substrate
-    const sortByComponentSubstrate = (a: { component: string; substrate?: string }, b: { component: string; substrate?: string }) => {
+    const sortByComponentSubstrate = (a: { component: string; substrate?: string }, b: { component: string; substrate?: string }): number => {
       const compCompare = a.component.localeCompare(b.component);
       if (compCompare !== 0) return compCompare;
       return (a.substrate || "").localeCompare(b.substrate || "");
@@ -316,6 +330,14 @@ export class SummaryService {
     const dateStr = new Date().toISOString().split("T")[0];
     const areaSlug = areaType === "Units" ? "units" : "common-areas";
     return `${jobNumber}-${areaSlug}-summary-${dateStr}.json`;
+  }
+
+  /**
+   * Generate filename for combined (Units + Common Areas) summary
+   */
+  generateCombinedSummaryFileName(jobNumber: string): string {
+    const dateStr = new Date().toISOString().split("T")[0];
+    return `${jobNumber}-summary-${dateStr}.json`;
   }
 }
 

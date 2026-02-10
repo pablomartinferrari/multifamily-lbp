@@ -41,9 +41,13 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
     "Sample ID",
   ],
 
-  // Component variations
+  // Component variations (include truncated and all-caps Excel headers)
   component: [
     "Component",
+    "COMPONENT",
+    "Components",
+    "COMPONE",
+    "COMPON",
     "Building Component",
     "Comp",
     "Component Type",
@@ -53,16 +57,17 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
     "Element",
   ],
 
-  // Color variations
+  // Color variations (include truncated headers e.g. COLOR)
   color: [
     "Color",
+    "COLOR",
     "Paint Color",
     "Colour",
     "Surface Color",
     "Coating Color",
   ],
 
-  // Lead content variations (mg/cm²)
+  // Lead content variations (mg/cm²); include truncated e.g. Concentra, Result
   leadContent: [
     "PbC",
     "PbC (mg/cm²)",
@@ -74,9 +79,12 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
     "Pb",
     "Pb Content",
     "Lead Concentration",
+    "Concentration", // Pb200i / Viken devices
+    "Concentra",     // Truncated
     "mg/cm²",
     "mg/cm2",
     "Result",
+    "RESULT",
     "XRF Result",
     "Lead Result",
     "Pb (mg/cm²)",
@@ -107,9 +115,10 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
     "Dwelling Unit",
   ],
 
-  // Room Type variations (Bedroom, Kitchen, etc.)
+  // Room Type variations (include truncated e.g. ROOM TY)
   roomType: [
     "Room Type",
+    "ROOM TY",
     "RoomType",
     "Room",
     "Room Name",
@@ -123,6 +132,7 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
   roomNumber: [
     "Room Number",
     "Room #",
+    "Room Num",  // Pb200i / Viken
     "Room No",
     "Rm #",
     "Rm No",
@@ -130,9 +140,10 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
     "#",
   ],
 
-  // Substrate variations
+  // Substrate variations (include truncated e.g. SUBSTRAT)
   substrate: [
     "Substrate",
+    "SUBSTRAT",
     "Subtrate", // Common typo
     "Surface",
     "Material",
@@ -144,14 +155,17 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
   // Side variations
   side: [
     "Side",
+    "SIDE",
     "Surface Side",
     "A/B",
     "Face",
   ],
 
-  // Condition variations
+  // Condition variations (include truncated e.g. CONDITIO)
   condition: [
     "Condition",
+    "CONDITIO",
+    "CONDITION",
     "Paint Condition",
     "Surface Condition",
     "Coating Condition",
@@ -170,10 +184,8 @@ export const DEFAULT_COLUMN_MAPPING: IColumnMapping = {
 };
 
 /**
- * Find matching column in Excel headers (case-insensitive)
- * @param headers - Array of column headers from Excel
- * @param possibleNames - Array of possible column name variations
- * @returns The matching header name or undefined if not found
+ * Find matching column in Excel headers (case-insensitive).
+ * Tries exact match first, then prefix match so truncated headers (e.g. COMPONE, SUBSTRAT) still match.
  */
 export function findColumnMatch(
   headers: string[],
@@ -181,11 +193,26 @@ export function findColumnMatch(
 ): string | undefined {
   const normalizedHeaders = headers.map((h) => h.toLowerCase().trim());
 
+  // 1. Exact match
   for (const name of possibleNames) {
     const normalizedName = name.toLowerCase().trim();
     const index = normalizedHeaders.indexOf(normalizedName);
     if (index !== -1) {
-      return headers[index]; // Return original case
+      return headers[index];
+    }
+  }
+
+  // 2. Prefix match: header truncated (e.g. "COMPONE" vs "Component") or name is prefix of header
+  const MIN_PREFIX_LEN = 4;
+  for (let i = 0; i < normalizedHeaders.length; i++) {
+    const h = normalizedHeaders[i];
+    if (!h) continue;
+    for (const name of possibleNames) {
+      const n = name.toLowerCase().trim();
+      if (h.length < MIN_PREFIX_LEN && n.length < MIN_PREFIX_LEN) continue;
+      if (n.startsWith(h) || h.startsWith(n)) {
+        return headers[i];
+      }
     }
   }
 

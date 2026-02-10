@@ -4,7 +4,6 @@ import {
   DetailsListLayoutMode,
   DetailsRow,
   IDetailsRowProps,
-  Selection,
   SelectionMode,
   IColumn,
   TextField,
@@ -20,6 +19,7 @@ import {
   DialogType,
   DialogFooter,
   TooltipHost,
+  Stack,
   mergeStyleSets,
 } from "@fluentui/react";
 import * as XLSX from "xlsx";
@@ -114,6 +114,8 @@ export interface IDataReviewGridProps {
   onRegenerateSummary: () => void;
   /** Callback to re-run AI normalization */
   onReNormalize: () => void;
+  /** Callback when user marks this step complete (e.g. to offer upload other type or generate report) */
+  onStepComplete?: () => void;
   /** Callback to go back to upload */
   onCancel: () => void;
   /** Whether summary regeneration is in progress */
@@ -127,34 +129,45 @@ interface IEditingCell {
   field: keyof IXrfReading;
 }
 
+const FIELD_LABELS: Record<keyof IXrfReading, string> = {
+  readingId: "Reading ID",
+  component: "Component (raw)",
+  normalizedComponent: "Normalized component",
+  substrate: "Substrate (raw)",
+  normalizedSubstrate: "Normalized substrate",
+  unitNumber: "Unit #",
+  roomType: "Room type",
+  roomNumber: "Room #",
+  side: "Side",
+  color: "Color",
+  leadContent: "Lead (mg/cm²)",
+  location: "Location",
+  isPositive: "Result",
+  areaType: "Area type",
+  condition: "Condition",
+  timestamp: "Timestamp",
+  rawRow: "Raw row",
+};
+
 export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
   readings,
   onReadingsChange,
   onRegenerateSummary,
   onReNormalize,
+  onStepComplete,
   onCancel,
   isProcessing = false,
   areaType,
 }) => {
   // State
-  const [editingCell, setEditingCell] = React.useState<IEditingCell | undefined>();
+  const [editDialogOpen, setEditDialogOpen] = React.useState<boolean>(false);
+  const [editCell, setEditCell] = React.useState<IEditingCell | undefined>();
   const [editValue, setEditValue] = React.useState<string>("");
   const [searchText, setSearchText] = React.useState<string>("");
   const [filterPositive, setFilterPositive] = React.useState<string>("all");
   const [changedReadingIds, setChangedReadingIds] = React.useState<Set<string>>(new Set());
   const [showConfirmDialog, setShowConfirmDialog] = React.useState<boolean>(false);
-  const [selectedItems, setSelectedItems] = React.useState<IXrfReading[]>([]);
 
-  // Selection
-  const selection = React.useMemo(
-    () =>
-      new Selection({
-        onSelectionChanged: () => {
-          setSelectedItems(selection.getSelection() as IXrfReading[]);
-        },
-      }),
-    []
-  );
 
   // Filter readings
   const filteredReadings = React.useMemo(() => {
@@ -199,117 +212,102 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
     return { total, positive, uniqueComponentSubstrate, changedCount };
   }, [readings, changedReadingIds]);
 
-  // Start editing a cell
-  const startEditing = (readingId: string, field: keyof IXrfReading, currentValue: unknown): void => {
-    setEditingCell({ readingId, field });
-    setEditValue(String(currentValue || ""));
+  // Open cell edit dialog
+  const openCellEdit = (readingId: string, field: keyof IXrfReading, currentValue: unknown): void => {
+    setEditCell({ readingId, field });
+    setEditValue(String(currentValue ?? ""));
+    setEditDialogOpen(true);
   };
 
-  // Save edited value
-  const saveEdit = (): void => {
-    if (!editingCell) return;
+  // Apply update to one reading or all readings with the same current value for this field
+  const applyEdit = (updateOnlyThisCell: boolean): void => {
+    if (!editCell) return;
+
+    const currentVal = readings.find((x) => x.readingId === editCell.readingId)
+      ? (() => {
+          const r = readings.find((x) => x.readingId === editCell!.readingId)!;
+          const v = (r as unknown as Record<string, unknown>)[editCell!.field];
+          return v === undefined || v === null ? "" : String(v);
+        })()
+      : "";
+
+    const readingIdsToUpdate =
+      updateOnlyThisCell
+        ? [editCell.readingId]
+        : readings
+            .filter((r) => {
+              const v = (r as unknown as Record<string, unknown>)[editCell!.field];
+              const s = v === undefined || v === null ? "" : String(v);
+              return s === currentVal;
+            })
+            .map((r) => r.readingId);
 
     const updatedReadings = readings.map((r) => {
-      if (r.readingId === editingCell.readingId) {
-        const updated = { ...r };
-
-        // Update the field
-        if (editingCell.field === "leadContent") {
-          const numValue = parseFloat(editValue);
-          if (!isNaN(numValue)) {
-            updated.leadContent = numValue;
-            updated.isPositive = numValue >= LEAD_POSITIVE_THRESHOLD;
-          }
-        } else {
-          (updated as Record<string, unknown>)[editingCell.field] = editValue;
+      if (!readingIdsToUpdate.includes(r.readingId)) return r;
+      const updated = { ...r } as IXrfReading;
+      if (editCell.field === "leadContent") {
+        const numValue = parseFloat(editValue);
+        if (!isNaN(numValue)) {
+          updated.leadContent = numValue;
+          updated.isPositive = numValue >= LEAD_POSITIVE_THRESHOLD;
         }
-
-        // Track changed readings
-        setChangedReadingIds((prev) => {
-          const newSet = new Set(Array.from(prev));
-          newSet.add(r.readingId);
-          return newSet;
-        });
-
-        return updated;
+      } else {
+        (updated as unknown as Record<string, unknown>)[editCell.field] = editValue;
       }
-      return r;
+      setChangedReadingIds((prev) => {
+        const next = new Set(Array.from(prev));
+        next.add(r.readingId);
+        return next;
+      });
+      return updated;
     });
 
     onReadingsChange(updatedReadings);
-    setEditingCell(undefined);
+    setEditDialogOpen(false);
+    setEditCell(undefined);
     setEditValue("");
   };
 
-  // Cancel editing
-  const cancelEdit = (): void => {
-    setEditingCell(undefined);
-    setEditValue("");
-  };
+  const currentCellValueWhenOpened = React.useMemo(() => {
+    if (!editCell) return "";
+    const r = readings.find((x) => x.readingId === editCell.readingId);
+    if (!r) return "";
+    const v = (r as unknown as Record<string, unknown>)[editCell.field];
+    return v === undefined || v === null ? "" : String(v);
+  }, [editCell, readings]);
 
-  // Handle key press in edit mode
-  const handleKeyPress = (e: React.KeyboardEvent): void => {
-    if (e.key === "Enter") {
-      saveEdit();
-    } else if (e.key === "Escape") {
-      cancelEdit();
-    }
-  };
+  const sameValueCount = editCell
+    ? readings.filter((r) => {
+        const v = (r as unknown as Record<string, unknown>)[editCell.field];
+        const s = v === undefined || v === null ? "" : String(v);
+        return s === currentCellValueWhenOpened;
+      }).length
+    : 0;
 
-  // Bulk update normalized component for selected items
-  const bulkUpdateComponent = (newNormalizedName: string): void => {
-    if (selectedItems.length === 0) return;
-
-    const selectedIds = new Set(selectedItems.map((s) => s.readingId));
-    const updatedReadings = readings.map((r) => {
-      if (selectedIds.has(r.readingId)) {
-        setChangedReadingIds((prev) => {
-          const newSet = new Set(Array.from(prev));
-          newSet.add(r.readingId);
-          return newSet;
-        });
-        return { ...r, normalizedComponent: newNormalizedName };
-      }
-      return r;
-    });
-
-    onReadingsChange(updatedReadings);
-    selection.setAllSelected(false);
-  };
-
-  // Render editable cell
+  // Render editable cell (click opens dialog)
   const renderEditableCell = (
     item: IXrfReading,
     field: keyof IXrfReading,
     value: unknown
   ): JSX.Element => {
-    const isEditing =
-      editingCell?.readingId === item.readingId && editingCell?.field === field;
-
-    if (isEditing) {
-      return (
-        <div className={styles.editCell}>
-          <TextField
-            value={editValue}
-            onChange={(_, newValue) => setEditValue(newValue || "")}
-            onKeyDown={handleKeyPress}
-            onBlur={saveEdit}
-            autoFocus
-            className={styles.editInput}
-            styles={{ root: { minWidth: field === "leadContent" ? 60 : 100 } }}
-          />
-        </div>
-      );
-    }
-
+    const displayValue = value === undefined || value === null ? "-" : String(value);
     return (
       <div
         className={styles.editCell}
-        onDoubleClick={() => startEditing(item.readingId, field, value)}
+        onClick={() => openCellEdit(item.readingId, field, value)}
         style={{ cursor: "pointer" }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openCellEdit(item.readingId, field, value);
+          }
+        }}
+        aria-label={`Edit ${FIELD_LABELS[field] || field}, current value ${displayValue}`}
       >
-        <TooltipHost content="Double-click to edit">
-          <span>{String(value || "-")}</span>
+        <TooltipHost content="Click to edit this cell. In the popup you can update only this cell or all cells with the same value.">
+          <span>{displayValue}</span>
         </TooltipHost>
       </div>
     );
@@ -431,10 +429,19 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
       onRender: (item: IXrfReading) => (
         <div
           className={item.isPositive ? styles.positive : styles.negative}
-          onDoubleClick={() => startEditing(item.readingId, "leadContent", item.leadContent)}
+          onClick={() => openCellEdit(item.readingId, "leadContent", item.leadContent)}
           style={{ cursor: "pointer" }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              openCellEdit(item.readingId, "leadContent", item.leadContent);
+            }
+          }}
+          aria-label={`Edit lead content, current value ${item.leadContent.toFixed(2)}`}
         >
-          <TooltipHost content="Double-click to edit">
+          <TooltipHost content="Click to edit. In the popup you can update only this cell or all cells with the same value.">
             {item.leadContent.toFixed(2)}
           </TooltipHost>
         </div>
@@ -488,7 +495,7 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
           Review & Edit Data - {areaType}
         </Text>
         <Text variant="small" style={{ color: "#605e5c" }}>
-          Double-click any cell to edit. Changes are highlighted in yellow.
+          Click any cell to edit. In the popup you can update only that cell or all cells with the same value. Changes are highlighted in yellow.
         </Text>
       </div>
 
@@ -535,11 +542,6 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
             onChange={(_, option) => setFilterPositive(option?.key as string || "all")}
             styles={{ root: { width: 150 } }}
           />
-          {selectedItems.length > 0 && (
-            <Text variant="small" style={{ color: "#605e5c" }}>
-              {selectedItems.length} selected
-            </Text>
-          )}
         </div>
         <div className={styles.actionSection}>
           <DefaultButton 
@@ -548,16 +550,6 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
             onClick={handleExportExcel} 
             disabled={!isFormValid || isProcessing}
           />
-          {selectedItems.length > 0 && (
-            <DefaultButton
-              text={`Bulk Edit (${selectedItems.length})`}
-              iconProps={{ iconName: "Edit" }}
-              onClick={() => {
-                const newName = prompt("Enter new normalized component name:");
-                if (newName) bulkUpdateComponent(newName);
-              }}
-            />
-          )}
           <DefaultButton text="Cancel" onClick={onCancel} disabled={isProcessing} />
           <DefaultButton
             text="Re-run AI Normalization"
@@ -571,6 +563,15 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
             onClick={() => setShowConfirmDialog(true)}
             disabled={isProcessing}
           />
+          {onStepComplete && (
+            <PrimaryButton
+              text="Step complete — continue"
+              iconProps={{ iconName: "Completed" }}
+              onClick={onStepComplete}
+              disabled={isProcessing}
+              styles={{ root: { marginLeft: 8 } }}
+            />
+          )}
         </div>
       </div>
 
@@ -588,9 +589,7 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
           items={filteredReadings}
           columns={columns}
           layoutMode={DetailsListLayoutMode.justified}
-          selection={selection}
-          selectionMode={SelectionMode.multiple}
-          selectionPreservedOnEmptyClick
+          selectionMode={SelectionMode.none}
           getKey={(item: IXrfReading) => item.readingId}
           setKey="data-review-grid"
           onShouldVirtualize={() => false}
@@ -622,6 +621,58 @@ export const DataReviewGrid: React.FC<IDataReviewGridProps> = ({
           </Text>
         )}
       </div>
+
+      {/* Cell edit dialog: update one cell or all cells with same value */}
+      <Dialog
+        hidden={!editDialogOpen || !editCell}
+        onDismiss={() => {
+          setEditDialogOpen(false);
+          setEditCell(undefined);
+          setEditValue("");
+        }}
+        dialogContentProps={{
+          type: DialogType.normal,
+          title: `Edit ${editCell ? (FIELD_LABELS[editCell.field] || editCell.field) : ""}`,
+          subText: editCell
+            ? sameValueCount > 1
+              ? `${sameValueCount} cells have this value. Choose to update only this cell or all of them.`
+              : "Update this cell, or add the same value to other cells by editing them separately."
+            : "",
+        }}
+        modalProps={{ styles: { main: { minWidth: 400 } } }}
+      >
+        <Stack tokens={{ childrenGap: 12 }} style={{ marginTop: 8 }}>
+          <TextField
+            label="New value"
+            value={editValue}
+            onChange={(_, v) => setEditValue(v ?? "")}
+            ariaLabel="New value for cell"
+          />
+          <Stack horizontal tokens={{ childrenGap: 8 }}>
+            <PrimaryButton
+              text="Update this cell only"
+              onClick={() => applyEdit(true)}
+              disabled={!editCell}
+            />
+            {sameValueCount > 1 && (
+              <DefaultButton
+                text={`Update all ${sameValueCount} cells with same value`}
+                onClick={() => applyEdit(false)}
+              />
+            )}
+          </Stack>
+        </Stack>
+        <DialogFooter>
+          <DefaultButton
+            text="Cancel"
+            onClick={() => {
+              setEditDialogOpen(false);
+              setEditCell(undefined);
+              setEditValue("");
+            }}
+          />
+        </DialogFooter>
+      </Dialog>
 
       {/* Confirm Dialog */}
       <Dialog

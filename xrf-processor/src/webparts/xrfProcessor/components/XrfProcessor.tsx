@@ -9,19 +9,12 @@ import {
   MessageBarType,
   Stack,
   Text,
-  Pivot,
-  PivotItem,
   ProgressIndicator,
   Icon,
   TooltipHost,
 } from "@fluentui/react";
-import {
-  testSharePointConnection,
-  IConnectionTestResult,
-} from "../services/ConnectionTest";
-
 // Components
-import { FileUpload } from "./FileUpload";
+import { ConversationalJobFlow } from "./ConversationalJobFlow";
 import { AINormalizationReview } from "./AINormalizationReview";
 import { ResultsSummary } from "./ResultsSummary";
 import { DataReviewGrid } from "./DataReviewGrid";
@@ -30,6 +23,7 @@ import {
   IExistingFileInfo,
   ConflictResolution,
 } from "./UploadConflictDialog";
+import type { UploadIntent } from "./ConversationalJobFlow";
 import { HelpChatPanel } from "./HelpChatPanel";
 
 // Services
@@ -38,6 +32,11 @@ import { ExcelParserService } from "../services/ExcelParserService";
 import { SummaryService } from "../services/SummaryService";
 import { getComponentNormalizerService } from "../services/ComponentNormalizerService";
 import { getSubstrateNormalizerService } from "../services/SubstrateNormalizerService";
+import {
+  collectPositiveComponents,
+  generateHazards,
+} from "../services/LeadInspectorService";
+import { convertCsvToXlsx, isCsvFileName } from "../services/csvToXlsx";
 
 // Models
 import { IXrfReading } from "../models/IXrfReading";
@@ -54,16 +53,24 @@ import {
 // Job Metadata Interface
 // ============================================
 interface IJobMetadata {
-  file: File;
   jobNumber: string;
+  areaType: "Units" | "Common Areas"; // Used for save metadata; report always has both sections
+  sourceFileName: string;
+}
+
+/** One skipped junk row from parse, with file context for user to fix source and re-upload */
+interface IJunkReportEntry {
+  fileName: string;
   areaType: "Units" | "Common Areas";
+  row: number;
+  reason: "noComponent" | "noLeadContent";
 }
 
 // ============================================
 // Main Component
 // ============================================
 const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
-  const { hasTeamsContext, userDisplayName, sp } = props;
+  const { hasTeamsContext, userDisplayName } = props;
 
   // Services (memoized to prevent recreation)
   const parserService = React.useMemo(() => new ExcelParserService(), []);
@@ -75,22 +82,33 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
   const [normalizations, setNormalizations] = React.useState<IComponentNormalization[]>([]);
   const [summary, setSummary] = React.useState<IJobSummary | undefined>(undefined);
   const [jobMetadata, setJobMetadata] = React.useState<IJobMetadata | undefined>(undefined);
-
-  // Connection test state
-  const [testResult, setTestResult] = React.useState<IConnectionTestResult | undefined>(undefined);
-  const [testing, setTesting] = React.useState(false);
+  /** Rows skipped as junk (no component / no lead) so user can fix source and re-upload */
+  const [junkReport, setJunkReport] = React.useState<IJunkReportEntry[]>([]);
 
   // Conflict dialog state
   const [conflictDialogOpen, setConflictDialogOpen] = React.useState(false);
   const [existingFileInfo, setExistingFileInfo] = React.useState<IExistingFileInfo | undefined>(undefined);
   const [pendingUpload, setPendingUpload] = React.useState<{
-    file: File;
+    files: File[];
     jobNumber: string;
     areaType: "Units" | "Common Areas";
   } | undefined>(undefined);
 
+  // Ensure conflict dialog opens when we have pending upload + existing file info (handles React batching)
+  React.useEffect(() => {
+    if (pendingUpload && existingFileInfo) {
+      setConflictDialogOpen(true);
+    }
+  }, [pendingUpload, existingFileInfo]);
+
   // Help panel state
   const [helpPanelOpen, setHelpPanelOpen] = React.useState(false);
+  const [jobNumber, setJobNumber] = React.useState("");
+  const [processingAction, setProcessingAction] = React.useState<"upload" | "generate" | null>(null);
+  const [uploadSuccessMessage, setUploadSuccessMessage] = React.useState<string | null>(null);
+  /** When in EDITING_COMPLETE, files chosen for uploading the "other" area type */
+  const [filesForOtherArea, setFilesForOtherArea] = React.useState<File[]>([]);
+  const otherAreaFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // ============================================
   // State Helpers
@@ -115,310 +133,347 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     setNormalizations([]);
     setSummary(undefined);
     setJobMetadata(undefined);
+    setJunkReport([]);
   };
 
   // ============================================
-  // Connection Test
+  // Upload Only (save one or more files, no report)
   // ============================================
-  const handleTestConnection = async (): Promise<void> => {
-    setTesting(true);
-    const result = await testSharePointConnection(sp);
-    setTestResult(result);
-    setTesting(false);
-  };
-
-  // ============================================
-  // Step 1: File Upload Processing (core logic)
-  // ============================================
-  const processFileUpload = async (
-    file: File,
-    jobNumber: string,
+  const handleUploadOnly = async (
+    files: File[],
+    jobNum: string,
     areaType: "Units" | "Common Areas",
-    mode: "replace" | "merge"
+    uploadIntent?: UploadIntent
   ): Promise<void> => {
-    setJobMetadata({ file, jobNumber, areaType });
-
+    setUploadSuccessMessage(null);
+    if (files.length === 0) return;
+    setProcessingAction("upload");
     try {
       const spService = getSharePointService();
-
-      // Handle replace mode - delete existing data first
-      if (mode === "replace") {
-        updateState("UPLOADING", 8, "Removing existing data...");
-        await spService.deleteExistingData(jobNumber, areaType);
-      }
-
-      // For merge mode, get existing readings first
-      let existingReadings: IXrfReading[] = [];
-      if (mode === "merge") {
-        updateState("UPLOADING", 8, "Loading existing readings for merge...");
-        existingReadings = await spService.getExistingReadings(jobNumber, areaType);
-        console.log(`Found ${existingReadings.length} existing readings to merge`);
-      }
-
-      // Upload file to SharePoint
-      updateState("UPLOADING", 10, "Uploading file to SharePoint...");
-      await spService.uploadSourceFile(file, {
-        jobNumber,
-        areaType,
-      });
-
-      // Parse Excel/CSV
-      updateState("PARSING", 25, "Parsing file data...");
-      const parseResult = await parserService.parseFileObject(file, (processed, total, stage) => {
-        const baseProgress = stage === "reading" ? 25 : 35;
-        const stageProgress = Math.round((processed / total) * 10);
-        updateState("PARSING", baseProgress + stageProgress, `Parsing: ${processed}/${total} rows...`);
-      });
-
-      if (parseResult.readings.length === 0) {
-        const errorMsg = parseResult.errors.length > 0
-          ? parseResult.errors.map((e) => e.message).join("; ")
-          : "No valid readings found in file";
-        throw new Error(errorMsg);
-      }
-
-      // If there were some errors but we have readings, just log them as warnings
-      if (parseResult.errors.length > 0) {
-        console.warn("Parse errors (some rows skipped):", parseResult.errors);
-      }
-
-      console.log(`Parsed ${parseResult.readings.length} readings from ${parseResult.metadata.sheetName}`);
-
-      // Merge with existing readings if in merge mode
-      let allReadings = parseResult.readings;
-      if (mode === "merge" && existingReadings.length > 0) {
-        updateState("PARSING", 42, `Merging ${existingReadings.length} existing + ${parseResult.readings.length} new readings...`);
-        
-        // Create a map of existing readings by ID for efficient lookup
-        const existingMap = new Map<string, IXrfReading>();
-        existingReadings.forEach((r) => existingMap.set(r.readingId, r));
-
-        // Add/update readings from new file
-        parseResult.readings.forEach((newReading) => {
-          existingMap.set(newReading.readingId, newReading); // New readings override existing with same ID
-        });
-
-        allReadings = Array.from(existingMap.values());
-        console.log(`Merged to ${allReadings.length} total readings`);
-      }
-
-      setReadings(allReadings);
-
-      // Show parse warnings if any
-      if (parseResult.warnings.length > 0) {
-        console.warn("Parse warnings:", parseResult.warnings);
-      }
-
-      // Normalize component names
-      updateState("NORMALIZING", 45, "Normalizing component names with AI...");
-      const normalizerService = getComponentNormalizerService();
-      const componentNames = Array.from(new Set(allReadings.map((r) => r.component)));
-
-      const normalizedComponents = await normalizerService.normalizeComponents(
-        componentNames,
-        (progress) => {
-          const normalizeProgress = 45 + Math.round((progress.processed / progress.total) * 7);
-          updateState("NORMALIZING", normalizeProgress, `Components: ${progress.message}`);
-        }
-      );
-
-      setNormalizations(normalizedComponents);
-
-      // Normalize substrate names
-      updateState("NORMALIZING", 52, "Normalizing substrate names with AI...");
-      const substrateNormalizerService = getSubstrateNormalizerService();
-      const { readings: readingsWithSubstrate } = await substrateNormalizerService.normalizeReadings(
-        allReadings,
-        (progress) => {
-          const normalizeProgress = 52 + Math.round((progress.processed / progress.total) * 8);
-          updateState("NORMALIZING", normalizeProgress, `Substrates: ${progress.message}`);
-        }
-      );
-
-      // Update readings with normalized substrates
-      setReadings(readingsWithSubstrate);
-
-      // Move to review step
-      updateState("REVIEWING", 60, "Review AI normalization suggestions...");
-    } catch (error) {
-      console.error("Processing error:", error);
-      updateState(
-        "ERROR",
-        0,
-        "Processing failed",
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-  };
-
-  // ============================================
-  // Step 1b: File Submit Handler (checks for conflicts)
-  // ============================================
-  const handleFileSubmit = async (
-    file: File,
-    jobNumber: string,
-    areaType: "Units" | "Common Areas"
-  ): Promise<void> => {
-    console.log("Processing file:", { fileName: file.name, jobNumber, areaType });
-
-    try {
-      // Check for existing data first
       updateState("UPLOADING", 5, "Checking for existing data...");
-      const spService = getSharePointService();
-      const existingData = await spService.checkExistingData(jobNumber, areaType);
+      const existingData = await spService.checkExistingData(jobNum, areaType);
+
+      // When user already chose Replace or Add in the flow, skip the dialog and proceed
+      if (uploadIntent === "replace" || uploadIntent === "merge") {
+        if (uploadIntent === "replace" && existingData.exists) {
+          updateState("UPLOADING", 10, "Removing existing data...");
+          await spService.deleteExistingData(jobNum, areaType);
+        }
+        updateState("PARSING", 15, "Validating files...");
+        for (let i = 0; i < files.length; i++) {
+          const parseResult = await parserService.parseFileObject(files[i]);
+          if (parseResult.readings.length === 0) {
+            const errMsg = parseResult.errors.length > 0
+              ? parseResult.errors.map((e) => e.message).join("; ")
+              : "No valid readings found in file";
+            throw new Error(`${files[i].name}: ${errMsg}`);
+          }
+        }
+        updateState("UPLOADING", 30, "Saving to SharePoint...");
+        for (let i = 0; i < files.length; i++) {
+          const pct = 30 + Math.round(((i + 1) / files.length) * 60);
+          updateState("UPLOADING", pct, `Uploading ${i + 1} of ${files.length}...`);
+          await spService.uploadSourceFile(files[i], { jobNumber: jobNum, areaType });
+        }
+        const mergeNote = uploadIntent === "merge" ? " (added to existing)" : "";
+        const fileLabel = files.length === 1 ? `"${files[0].name}"` : `${files.length} files`;
+        setUploadSuccessMessage(`${fileLabel} uploaded successfully for Job ${jobNum} (${areaType})${mergeNote}. Loading data for review...`);
+        if (jobNum !== "TEMP") {
+          handleReviewDataAfterUpload(jobNum, areaType).catch(() => { /* state updated on error */ });
+        } else {
+          updateState("IDLE", 0, "");
+        }
+        return;
+      }
 
       if (existingData.exists) {
-        // Show conflict dialog
         const info: IExistingFileInfo = {
-          fileName: existingData.sourceFile?.Title || existingData.processedResult?.Title || "Unknown",
-          uploadDate: existingData.sourceFile?.Created || existingData.processedResult?.Created || "",
+          fileName: existingData.sourceFile?.Title || "Unknown",
+          uploadDate: existingData.sourceFile?.Created || "",
           totalReadings: existingData.processedResult?.TotalReadings || 0,
           positiveCount: existingData.processedResult?.LeadPositiveCount || 0,
           status: existingData.sourceFile?.ProcessedStatus || "Complete",
         };
-
         setExistingFileInfo(info);
-        setPendingUpload({ file, jobNumber, areaType });
+        setPendingUpload({ files, jobNumber: jobNum, areaType });
         setConflictDialogOpen(true);
-        updateState("IDLE", 0, ""); // Reset state while waiting for user decision
+        updateState("IDLE", 0, "");
+        setProcessingAction(null);
         return;
       }
 
-      // No conflict - proceed with upload
-      await processFileUpload(file, jobNumber, areaType, "replace");
+      updateState("PARSING", 15, "Validating files...");
+      for (let i = 0; i < files.length; i++) {
+        const parseResult = await parserService.parseFileObject(files[i]);
+        if (parseResult.readings.length === 0) {
+          const errMsg = parseResult.errors.length > 0
+            ? parseResult.errors.map((e) => e.message).join("; ")
+            : "No valid readings found in file";
+          throw new Error(`${files[i].name}: ${errMsg}`);
+        }
+      }
+
+      updateState("UPLOADING", 30, "Saving to SharePoint...");
+      for (let i = 0; i < files.length; i++) {
+        const pct = 30 + Math.round(((i + 1) / files.length) * 60);
+        updateState("UPLOADING", pct, `Uploading ${i + 1} of ${files.length}...`);
+        await spService.uploadSourceFile(files[i], { jobNumber: jobNum, areaType });
+      }
+
+      const fileLabel = files.length === 1 ? `"${files[0].name}"` : `${files.length} files`;
+      setUploadSuccessMessage(`${fileLabel} uploaded successfully for Job ${jobNum} (${areaType}). Loading data for review...`);
+
+      if (jobNum !== "TEMP") {
+        handleReviewDataAfterUpload(jobNum, areaType).catch(() => { /* state updated on error */ });
+      } else {
+        updateState("IDLE", 0, "");
+      }
     } catch (error) {
-      console.error("Processing error:", error);
       updateState(
         "ERROR",
         0,
-        "Processing failed",
+        "Upload failed",
         error instanceof Error ? error.message : String(error)
       );
+    } finally {
+      setProcessingAction(null);
     }
   };
 
-  // Handle conflict resolution
-  const handleConflictResolve = async (resolution: ConflictResolution): Promise<void> => {
+  const handleUploadConflictResolve = async (resolution: ConflictResolution): Promise<void> => {
     setConflictDialogOpen(false);
-
     if (resolution === "cancel" || !pendingUpload) {
       setPendingUpload(undefined);
       setExistingFileInfo(undefined);
+      setProcessingAction(null);
       return;
     }
-
-    const { file, jobNumber, areaType } = pendingUpload;
+    const { files, jobNumber: jobNum, areaType } = pendingUpload;
     setPendingUpload(undefined);
     setExistingFileInfo(undefined);
-
-    await processFileUpload(file, jobNumber, areaType, resolution);
-  };
-
-  // ============================================
-  // Load Existing Data (without re-uploading)
-  // ============================================
-  const handleLoadExisting = async (
-    jobNumber: string,
-    areaType: "Units" | "Common Areas"
-  ): Promise<void> => {
-    console.log("Loading existing data:", { jobNumber, areaType });
+    setUploadSuccessMessage(null);
+    setProcessingAction("upload");
 
     try {
-      updateState("UPLOADING", 5, "Checking for existing data...");
       const spService = getSharePointService();
-
-      // Check if data exists
-      const existingData = await spService.checkExistingData(jobNumber, areaType);
-      if (!existingData.exists) {
-        updateState(
-          "ERROR",
-          0,
-          "No existing data found",
-          `No data found for Job ${jobNumber} (${areaType}). Please upload a file first.`
-        );
-        return;
+      if (resolution === "replace") {
+        updateState("UPLOADING", 10, "Removing existing data...");
+        await spService.deleteExistingData(jobNum, areaType);
       }
 
-      // Try to get the source file and re-parse it
-      updateState("UPLOADING", 15, "Loading source file from SharePoint...");
-      const sourceFile = await spService.getSourceFileForJob(jobNumber, areaType);
-
-      if (!sourceFile) {
-        updateState(
-          "ERROR",
-          0,
-          "Source file not found",
-          `The source file for Job ${jobNumber} (${areaType}) could not be found. You may need to re-upload the file.`
-        );
-        return;
-      }
-
-      // Create a File-like object from the buffer for the job metadata
-      const blob = new Blob([sourceFile.buffer], { 
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
-      });
-      const fileObject = new File([blob], sourceFile.fileName, { type: blob.type });
-      
-      setJobMetadata({ file: fileObject, jobNumber, areaType });
-
-      // Parse the file
-      updateState("PARSING", 25, "Parsing file data...");
-      const parseResult = await parserService.parseFile(sourceFile.buffer, (processed, total, stage) => {
-        const baseProgress = stage === "reading" ? 25 : 35;
-        const stageProgress = Math.round((processed / total) * 10);
-        updateState("PARSING", baseProgress + stageProgress, `Parsing: ${processed}/${total} rows...`);
-      });
-
-      if (parseResult.readings.length === 0) {
-        const errorMsg = parseResult.errors.length > 0
-          ? parseResult.errors.map((e) => e.message).join("; ")
-          : "No valid readings found in file";
-        throw new Error(errorMsg);
-      }
-
-      console.log(`Parsed ${parseResult.readings.length} readings from existing file`);
-      setReadings(parseResult.readings);
-
-      // Normalize component names
-      updateState("NORMALIZING", 45, "Normalizing component names with AI...");
-      const normalizerService = getComponentNormalizerService();
-      const componentNames = Array.from(new Set(parseResult.readings.map((r) => r.component)));
-
-      const normalizedComponents = await normalizerService.normalizeComponents(
-        componentNames,
-        (progress) => {
-          const normalizeProgress = 45 + Math.round((progress.processed / progress.total) * 7);
-          updateState("NORMALIZING", normalizeProgress, `Components: ${progress.message}`);
+      updateState("PARSING", 20, "Validating files...");
+      for (let i = 0; i < files.length; i++) {
+        const parseResult = await parserService.parseFileObject(files[i]);
+        if (parseResult.readings.length === 0) {
+          throw new Error(`${files[i].name}: No valid readings found`);
         }
-      );
+      }
 
-      setNormalizations(normalizedComponents);
+      updateState("UPLOADING", 50, "Saving to SharePoint...");
+      for (let i = 0; i < files.length; i++) {
+        const pct = 50 + Math.round(((i + 1) / files.length) * 45);
+        updateState("UPLOADING", pct, `Uploading ${i + 1} of ${files.length}...`);
+        await spService.uploadSourceFile(files[i], { jobNumber: jobNum, areaType });
+      }
+      const mergeNote = resolution === "merge" ? " (added to existing)" : "";
+      const fileLabel = files.length === 1 ? `"${files[0].name}"` : `${files.length} files`;
+      setUploadSuccessMessage(`${fileLabel} uploaded successfully for Job ${jobNum} (${areaType})${mergeNote}. Loading data for review...`);
 
-      // Normalize substrate names
-      updateState("NORMALIZING", 52, "Normalizing substrate names with AI...");
-      const substrateNormalizerService = getSubstrateNormalizerService();
-      const { readings: readingsWithSubstrate } = await substrateNormalizerService.normalizeReadings(
-        parseResult.readings,
-        (progress) => {
-          const normalizeProgress = 52 + Math.round((progress.processed / progress.total) * 8);
-          updateState("NORMALIZING", normalizeProgress, `Substrates: ${progress.message}`);
-        }
-      );
-
-      // Update readings with normalized substrates
-      setReadings(readingsWithSubstrate);
-
-      // Move to review step
-      updateState("REVIEWING", 60, "Review AI normalization suggestions...");
+      if (jobNum !== "TEMP") {
+        handleReviewDataAfterUpload(jobNum, areaType).catch(() => { /* state updated on error */ });
+      } else {
+        updateState("IDLE", 0, "");
+      }
     } catch (error) {
-      console.error("Load existing data error:", error);
       updateState(
         "ERROR",
         0,
-        "Failed to load existing data",
+        "Upload failed",
         error instanceof Error ? error.message : String(error)
       );
+    } finally {
+      setProcessingAction(null);
     }
+  };
+
+  // ============================================
+  // Review data after upload (load merged files → normalize → grid)
+  // ============================================
+  /** Load all source data for this job (both Units and Common Areas when both exist), merge, normalize, then show review panel and grid. */
+  const handleReviewDataAfterUpload = async (
+    jobNum: string,
+    _areaTypeJustUploaded: "Units" | "Common Areas"
+  ): Promise<void> => {
+    setProcessingAction("generate");
+    try {
+      const spService = getSharePointService();
+      updateState("UPLOADING", 5, "Loading data for job...");
+      const status = await spService.getJobDataStatus(jobNum);
+      if (!status.hasUnits && !status.hasCommonAreas) {
+        updateState("ERROR", 0, "No data", "No data found for this job.");
+        return;
+      }
+
+      const unitReadings: IXrfReading[] = [];
+      const commonAreaReadings: IXrfReading[] = [];
+      const sourceFileNames: string[] = [];
+      const combinedJunkReport: IJunkReportEntry[] = [];
+
+      if (status.hasUnits) {
+        updateState("UPLOADING", 10, "Loading Units data...");
+        const { readings, fileNames, junkReport: unitsJunk } = await loadAndMergeReadingsForArea(jobNum, "Units");
+        if (readings.length > 0) {
+          unitReadings.push(...readings);
+          sourceFileNames.push(...fileNames);
+        }
+        combinedJunkReport.push(...unitsJunk);
+      }
+
+      if (status.hasCommonAreas) {
+        updateState("UPLOADING", 25, "Loading Common Areas data...");
+        const { readings, fileNames, junkReport: commonJunk } = await loadAndMergeReadingsForArea(jobNum, "Common Areas");
+        if (readings.length > 0) {
+          commonAreaReadings.push(...readings);
+          if (sourceFileNames.length === 0) sourceFileNames.push(...fileNames);
+          else sourceFileNames.push(...fileNames);
+        }
+        combinedJunkReport.push(...commonJunk);
+      }
+
+      const allReadings = [...unitReadings, ...commonAreaReadings];
+      if (allReadings.length === 0) {
+        updateState("ERROR", 0, "No data", "No valid readings in uploaded file(s).");
+        return;
+      }
+
+      setJunkReport(combinedJunkReport);
+
+      const areaTypeKey: "Units" | "Common Areas" = status.hasUnits ? "Units" : "Common Areas";
+      const sourceFileName =
+        sourceFileNames.length === 0
+          ? `Job ${jobNum} data`
+          : sourceFileNames.length === 1
+            ? sourceFileNames[0]
+            : `Job ${jobNum} (${sourceFileNames.length} files merged)`;
+
+      setJobMetadata({
+        jobNumber: jobNum,
+        areaType: areaTypeKey,
+        sourceFileName,
+      });
+      setReadings(allReadings);
+
+      updateState("NORMALIZING", 45, "Normalizing component names...");
+      const normalizerService = getComponentNormalizerService();
+      const componentNames = Array.from(new Set(allReadings.map((r) => r.component)));
+      const normalizedComponents = await normalizerService.normalizeComponents(
+        componentNames,
+        (p) => updateState("NORMALIZING", 45 + Math.round((p.processed / p.total) * 7), `Components: ${p.message}`)
+      );
+      setNormalizations(normalizedComponents);
+
+      updateState("NORMALIZING", 52, "Normalizing substrate names...");
+      const substrateService = getSubstrateNormalizerService();
+      const { readings: withSubstrate } = await substrateService.normalizeReadings(
+        allReadings,
+        (p) => updateState("NORMALIZING", 52 + Math.round((p.processed / p.total) * 8), `Substrates: ${p.message}`)
+      );
+      setReadings(withSubstrate);
+
+      updateState("REVIEWING", 60, "Review AI normalization suggestions...");
+    } catch (error) {
+      updateState(
+        "ERROR",
+        0,
+        "Failed to load data",
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      setProcessingAction(null);
+    }
+  };
+
+  // ============================================
+  // Generate Report (load from SharePoint)
+  // ============================================
+  /**
+   * Merge key when combining multiple files: file index + readingId so that
+   * the same shot id (e.g. 1) from different files are kept as separate rows.
+   */
+  const readingMergeKeyWithFile = (fileIndex: number, r: IXrfReading): string =>
+    `${fileIndex}_${r.readingId}`;
+
+  const loadAndMergeReadingsForArea = async (
+    jobNum: string,
+    areaType: "Units" | "Common Areas"
+  ): Promise<{ readings: IXrfReading[]; fileNames: string[]; junkReport: IJunkReportEntry[] }> => {
+    const spService = getSharePointService();
+    const allFiles = await spService.getAllSourceFilesForJob(jobNum, areaType);
+    if (allFiles.length === 0) return { readings: [], fileNames: [], junkReport: [] };
+
+    const mergedByKey = new Map<string, IXrfReading>();
+    const fileNames: string[] = [];
+    const junkReport: IJunkReportEntry[] = [];
+    for (let i = 0; i < allFiles.length; i++) {
+      const f = allFiles[i];
+      fileNames.push(f.fileName);
+      let buf = f.buffer;
+      if (isCsvFileName(f.fileName)) buf = convertCsvToXlsx(buf);
+      const pr = await parserService.parseFile(buf);
+      for (const r of pr.readings) {
+        const fileSuffix = `_f${i}`;
+        const reading: IXrfReading = {
+          ...r,
+          areaType,
+          readingId: r.readingId + fileSuffix,
+        };
+        mergedByKey.set(readingMergeKeyWithFile(i, r), reading);
+      }
+      const rows = pr.metadata?.skippedJunkRows ?? [];
+      for (const { row, reason } of rows) {
+        junkReport.push({ fileName: f.fileName, areaType, row, reason });
+      }
+    }
+    return { readings: Array.from(mergedByKey.values()), fileNames, junkReport };
+  };
+
+  /** Load saved summary and go straight to report (no AI/normalization). */
+  const handleViewReport = async (jobNum: string): Promise<void> => {
+    setProcessingAction("generate");
+    try {
+      const spService = getSharePointService();
+      const json = await spService.getLatestSummaryJsonByJob(jobNum);
+      if (!json) {
+        updateState("ERROR", 0, "No saved report", "No saved report found for this job. Process data first to generate a report.");
+        return;
+      }
+      const jobSummary = summaryService.fromJson(json);
+      const areaType: "Units" | "Common Areas" =
+        jobSummary.unitsSummary && jobSummary.unitsSummary.totalReadings > 0
+          ? "Units"
+          : "Common Areas";
+      setJobMetadata({
+        jobNumber: jobSummary.jobNumber,
+        areaType,
+        sourceFileName: jobSummary.sourceFileName,
+      });
+      setSummary(jobSummary);
+      setReadings([]);
+      updateState("COMPLETE", 100, "Report loaded.");
+    } catch (error) {
+      updateState(
+        "ERROR",
+        0,
+        "Failed to load report",
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      setProcessingAction(null);
+    }
+  };
+
+  const handleConflictResolve = (resolution: ConflictResolution): void => {
+    handleUploadConflictResolve(resolution).catch(() => { /* handled in promise */ });
   };
 
   // ============================================
@@ -515,35 +570,45 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     try {
       updateState("SUMMARIZING", 80, "Generating HUD/EPA summary...");
 
-      // Generate summary based on area type
       const aiCount = normalizations.filter((n) => n.source === "AI").length;
+      const unitReadings = readings.filter((r) => r.areaType === "Units" || !r.areaType);
+      const commonAreaReadings = readings.filter((r) => r.areaType === "Common Areas");
+      const hasBoth = unitReadings.length > 0 && commonAreaReadings.length > 0;
+
       const jobSummary = summaryService.generateJobSummary(
         jobMetadata.jobNumber,
-        jobMetadata.file.name,
-        jobMetadata.areaType === "Common Areas" ? readings : undefined,
-        jobMetadata.areaType === "Units" ? readings : undefined,
+        jobMetadata.sourceFileName,
+        commonAreaReadings.length > 0 ? commonAreaReadings : undefined,
+        unitReadings.length > 0 ? unitReadings : undefined,
         aiCount
       );
 
-      // Save results to SharePoint
+      updateState("SUMMARIZING", 85, "Generating hazard recommendations (Lead Inspector AI)...");
+      const positiveComponents = collectPositiveComponents(
+        jobSummary.commonAreaSummary,
+        jobSummary.unitsSummary
+      );
+      if (positiveComponents.length > 0) {
+        const hazards = await generateHazards(positiveComponents);
+        jobSummary.hazards = hazards;
+      }
+
       updateState("STORING", 90, "Saving results to SharePoint...");
       const spService = getSharePointService();
-
       const summaryJson = summaryService.toJson(jobSummary);
-      const summaryFileName = summaryService.generateSummaryFileName(
-        jobMetadata.jobNumber,
-        jobMetadata.areaType
-      );
 
-      // Calculate stats for metadata
+      const summaryFileName = hasBoth
+        ? summaryService.generateCombinedSummaryFileName(jobMetadata.jobNumber)
+        : summaryService.generateSummaryFileName(jobMetadata.jobNumber, jobMetadata.areaType);
+
       const totalReadings = readings.length;
       const positiveCount = readings.filter((r) => r.isPositive).length;
       const uniqueComponents = new Set(readings.map((r) => r.normalizedComponent || r.component)).size;
 
       await spService.saveProcessedResults(summaryJson, summaryFileName, {
         jobNumber: jobMetadata.jobNumber,
-        areaType: jobMetadata.areaType,
-        sourceFileUrl: "", // Could be retrieved from upload result if needed
+        areaType: hasBoth ? "Units" : jobMetadata.areaType,
+        sourceFileUrl: "",
         totalReadings,
         uniqueComponents,
         leadPositiveCount: positiveCount,
@@ -580,6 +645,27 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     handleReset();
   };
 
+  /** When in EDITING_COMPLETE: upload the other area type (Units or Common Areas) and reload pipeline */
+  const handleUploadOtherArea = async (): Promise<void> => {
+    if (!jobMetadata || filesForOtherArea.length === 0) return;
+    const files = [...filesForOtherArea];
+    const otherType: "Units" | "Common Areas" =
+      readings.some((r) => r.areaType === "Common Areas")
+        ? "Units"
+        : "Common Areas";
+    setFilesForOtherArea([]);
+    if (otherAreaFileInputRef.current) otherAreaFileInputRef.current.value = "";
+    await handleUploadOnly(files, jobMetadata.jobNumber, otherType);
+  };
+
+  const otherAreaType = (): "Units" | "Common Areas" | null => {
+    const hasUnits = readings.some((r) => r.areaType === "Units" || !r.areaType);
+    const hasCommonAreas = readings.some((r) => r.areaType === "Common Areas");
+    if (!hasUnits) return "Units";
+    if (!hasCommonAreas) return "Common Areas";
+    return null;
+  };
+
   // ============================================
   // Render Helpers
   // ============================================
@@ -589,7 +675,8 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
       state.step === "COMPLETE" ||
       state.step === "ERROR" ||
       state.step === "REVIEWING" ||
-      state.step === "EDITING"
+      state.step === "EDITING" ||
+      state.step === "EDITING_COMPLETE"
     ) {
       return null;
     }
@@ -603,6 +690,10 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
     );
   };
 
+  const handleStepComplete = (): void => {
+    updateState("EDITING_COMPLETE", 72, "Choose next step");
+  };
+
   const renderDataReviewGrid = (): JSX.Element | null => {
     if (state.step !== "EDITING" || !jobMetadata) {
       return null;
@@ -614,10 +705,122 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
         onReadingsChange={handleReadingsChange}
         onRegenerateSummary={handleGenerateSummary}
         onReNormalize={handleReNormalize}
+        onStepComplete={handleStepComplete}
         onCancel={handleCancelEditing}
         isProcessing={false}
         areaType={jobMetadata.areaType}
       />
+    );
+  };
+
+  const renderEditingComplete = (): JSX.Element | null => {
+    if (state.step !== "EDITING_COMPLETE" || !jobMetadata) return null;
+    const other = otherAreaType();
+    const isProcessing = processingAction === "upload" || processingAction === "generate";
+
+    const addOtherFiles = (fileList: FileList | null): void => {
+      if (!fileList || fileList.length === 0) return;
+      const accepted = [".xlsx", ".csv"];
+      const toAdd: File[] = [];
+      for (let i = 0; i < fileList.length; i++) {
+        const f = fileList[i];
+        const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
+        if (accepted.includes(ext)) toAdd.push(f);
+      }
+      setFilesForOtherArea((prev) => [...prev, ...toAdd]);
+    };
+
+    return (
+      <Stack tokens={{ childrenGap: 24 }} styles={{ root: { marginTop: 24 } }}>
+        <MessageBar messageBarType={MessageBarType.success}>
+          <Text block>
+            <strong>Step complete.</strong> You&apos;ve finished editing your data. You can upload the other data type next, or generate the report now.
+          </Text>
+        </MessageBar>
+        <Stack horizontal tokens={{ childrenGap: 16 }} wrap verticalAlign="center">
+          {other !== null && (
+            <Stack tokens={{ childrenGap: 8 }}>
+              <Text variant="medium" block>
+                Upload <strong>{other}</strong> data (optional)
+              </Text>
+              <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
+                <input
+                  ref={otherAreaFileInputRef}
+                  type="file"
+                  accept=".xlsx,.csv"
+                  multiple
+                  onChange={(e) => {
+                    addOtherFiles(e.target.files ?? null);
+                    e.target.value = "";
+                  }}
+                  style={{ display: "none" }}
+                  aria-label={`Choose ${other} data files`}
+                />
+                <DefaultButton
+                  text="Choose files"
+                  iconProps={{ iconName: "Attach" }}
+                  onClick={() => otherAreaFileInputRef.current?.click()}
+                  disabled={isProcessing}
+                />
+                {filesForOtherArea.length > 0 && (
+                  <>
+                    <Text variant="small">
+                      {filesForOtherArea.length} file(s) selected
+                    </Text>
+                    <PrimaryButton
+                      text={processingAction === "upload" ? "Uploading…" : "Upload and continue"}
+                      onClick={handleUploadOtherArea}
+                      disabled={isProcessing}
+                      iconProps={{ iconName: "CloudUpload" }}
+                    />
+                  </>
+                )}
+              </Stack>
+            </Stack>
+          )}
+          <PrimaryButton
+            text={processingAction === "generate" ? "Generating…" : "Generate Report"}
+            onClick={handleGenerateSummary}
+            disabled={isProcessing}
+            iconProps={{ iconName: "ReportDocument" }}
+          />
+        </Stack>
+      </Stack>
+    );
+  };
+
+  /** Rows skipped as junk (no component / no lead). Shown at end of process so user can fix source and re-upload. */
+  const renderJunkReport = (): JSX.Element | null => {
+    if (junkReport.length === 0 || (state.step !== "EDITING" && state.step !== "EDITING_COMPLETE" && state.step !== "COMPLETE")) {
+      return null;
+    }
+    const reasonLabel = (r: "noComponent" | "noLeadContent"): string =>
+      r === "noComponent" ? "No component" : "No valid lead value";
+    return (
+      <MessageBar messageBarType={MessageBarType.warning} styles={{ root: { marginTop: 16, marginBottom: 16 } }}>
+        <Stack tokens={{ childrenGap: 8 }}>
+          <Text variant="mediumPlus" block>
+            <strong>Skipped rows (considered junk)</strong>
+          </Text>
+          <Text variant="small" block>
+            The following rows were skipped because they had no component or no valid lead value. Fix these in your
+            source file and re-upload if you want them included.
+          </Text>
+          <Stack tokens={{ childrenGap: 4 }} styles={{ root: { maxHeight: 200, overflowY: "auto" } }}>
+            {junkReport.map((entry, idx) => (
+              <Text key={idx} variant="small" block>
+                <strong>{entry.fileName}</strong> ({entry.areaType}) — Row {entry.row}: {reasonLabel(entry.reason)}
+              </Text>
+            ))}
+          </Stack>
+          <DefaultButton
+            text="Re-upload"
+            iconProps={{ iconName: "Upload" }}
+            onClick={handleReset}
+            styles={{ root: { marginTop: 4 } }}
+          />
+        </Stack>
+      </MessageBar>
     );
   };
 
@@ -695,10 +898,10 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
       <div className={styles.welcome}>
         <Stack horizontal horizontalAlign="space-between" verticalAlign="center" style={{ width: "100%" }}>
           <Stack>
-            <h2 style={{ margin: 0 }}>LBP Multifamily Convert</h2>
-            <Text variant="medium">Welcome, {userDisplayName}!</Text>
+            <h2 style={{ margin: 0 }}>Generate Lead Paint Multifamily Report</h2>
           </Stack>
-          <TooltipHost content="Ask AI for help using this application">
+          <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
+            <TooltipHost content="Ask AI for help using this application">
             <IconButton
               iconProps={{ iconName: "Robot" }}
               title="AI Help Assistant"
@@ -723,6 +926,7 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
               }}
             />
           </TooltipHost>
+          </Stack>
         </Stack>
       </div>
 
@@ -735,6 +939,18 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
       {/* Error Display */}
       {renderError()}
 
+      {/* Upload success notification */}
+      {uploadSuccessMessage && (
+        <MessageBar
+          messageBarType={MessageBarType.success}
+          onDismiss={() => setUploadSuccessMessage(null)}
+          dismissButtonAriaLabel="Close"
+          styles={{ root: { marginBottom: 16 } }}
+        >
+          {uploadSuccessMessage}
+        </MessageBar>
+      )}
+
       {/* Progress Bar */}
       {renderProgressBar()}
 
@@ -745,7 +961,7 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
           jobNumber={pendingUpload.jobNumber}
           areaType={pendingUpload.areaType}
           existingFile={existingFileInfo}
-          newFileName={pendingUpload.file.name}
+          newFileName={pendingUpload.files.length === 1 ? pendingUpload.files[0].name : `${pendingUpload.files.length} files`}
           onResolve={handleConflictResolve}
         />
       )}
@@ -763,76 +979,33 @@ const XrfProcessor: React.FC<IXrfProcessorProps> = (props) => {
       {/* Data Review Grid */}
       {renderDataReviewGrid()}
 
+      {/* After step complete: upload other type or generate report */}
+      {renderEditingComplete()}
+
+      {/* Skipped junk rows (EDITING or COMPLETE) */}
+      {renderJunkReport()}
+
       {/* Main Content */}
       {state.step === "COMPLETE" ? (
         renderComplete()
-      ) : state.step === "EDITING" ? (
-        null // DataReviewGrid is rendered above
+      ) : state.step === "EDITING" || state.step === "EDITING_COMPLETE" ? (
+        null // Grid or editing-complete card rendered above
       ) : state.step === "IDLE" || state.step === "ERROR" ? (
-        <Pivot styles={{ root: { marginTop: 24 } }}>
-          {/* File Upload Tab */}
-          <PivotItem headerText="Process File" itemIcon="Upload">
-            <Stack tokens={{ childrenGap: 16 }} styles={{ root: { marginTop: 16 } }}>
-              <FileUpload
-                onSubmit={handleFileSubmit}
-                onLoadExisting={handleLoadExisting}
-                isProcessing={
-                  state.step !== "IDLE" && state.step !== "ERROR" && state.step !== "COMPLETE"
-                }
-                progress={state.progress}
-                progressMessage={state.message}
-              />
-            </Stack>
-          </PivotItem>
-
-          {/* Connection Test Tab */}
-          <PivotItem headerText="Connection Test" itemIcon="PlugConnected">
-            <Stack tokens={{ childrenGap: 16 }} styles={{ root: { marginTop: 16 } }}>
-              <Text variant="large" block>
-                Test your SharePoint connection before proceeding with data processing.
-              </Text>
-
-              <PrimaryButton
-                text={testing ? "Testing..." : "Test SharePoint Connection"}
-                onClick={handleTestConnection}
-                disabled={testing}
-                styles={{ root: { maxWidth: 250 } }}
-              />
-
-              {testResult && (
-                <div>
-                  <MessageBar
-                    messageBarType={
-                      testResult.success ? MessageBarType.success : MessageBarType.error
-                    }
-                  >
-                    {testResult.success ? "Connection successful!" : "Connection failed"}
-                  </MessageBar>
-
-                  <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 12 } }}>
-                    <Text>
-                      <strong>Can Read:</strong> {testResult.canRead ? "✅ Yes" : "❌ No"}
-                    </Text>
-                    <Text>
-                      <strong>Can Write:</strong>{" "}
-                      {testResult.canWrite ? "✅ Yes" : "⚠️ Skipped (expected)"}
-                    </Text>
-                    {testResult.error && (
-                      <MessageBar messageBarType={MessageBarType.error}>
-                        <strong>Error:</strong> {testResult.error}
-                      </MessageBar>
-                    )}
-                    {testResult.details && (
-                      <MessageBar messageBarType={MessageBarType.info}>
-                        <strong>Details:</strong> {testResult.details}
-                      </MessageBar>
-                    )}
-                  </Stack>
-                </div>
-              )}
-            </Stack>
-          </PivotItem>
-        </Pivot>
+        <Stack styles={{ root: { marginTop: 24 } }}>
+          {/* Conversational flow only – no tabs; start with just the question */}
+          <ConversationalJobFlow
+            userDisplayName={userDisplayName}
+            jobNumber={jobNumber}
+            onJobNumberChange={(v) => {
+              setUploadSuccessMessage(null);
+              setJobNumber(v);
+            }}
+            onUpload={handleUploadOnly}
+            onViewReport={handleViewReport}
+            isUploading={processingAction === "upload"}
+            isGenerating={processingAction === "generate"}
+          />
+        </Stack>
       ) : (
         // Processing in progress - show simplified view
         <Stack tokens={{ childrenGap: 16 }} styles={{ root: { marginTop: 24 } }}>

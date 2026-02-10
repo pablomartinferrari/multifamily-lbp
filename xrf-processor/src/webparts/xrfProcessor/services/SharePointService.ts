@@ -31,7 +31,8 @@ export class SharePointService {
   // ============================================
 
   /**
-   * Upload an Excel file to the Source Files library
+   * Upload an Excel file to the Source Files library.
+   * Uses a unique filename (timestamp) so multiple uploads for the same job/area are kept for merge.
    */
   async uploadSourceFile(
     file: File,
@@ -40,11 +41,14 @@ export class SharePointService {
     const library = this.sp.web.lists.getByTitle(LIBRARY_NAMES.SOURCE_FILES);
     const folder = await library.rootFolder();
 
-    // Upload file
     const fileBuffer = await file.arrayBuffer();
+    const base = file.name.replace(/\.[^.]+$/, "");
+    const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : ".xlsx";
+    const uniqueName = `${base}_${Date.now()}${ext}`;
+
     const uploadResult = await this.sp.web
       .getFolderByServerRelativePath(folder.ServerRelativeUrl)
-      .files.addUsingPath(file.name, fileBuffer, { Overwrite: true });
+      .files.addUsingPath(uniqueName, fileBuffer, { Overwrite: false });
 
     // Get the list item associated with the file
     const fileItem = await this.sp.web
@@ -79,7 +83,7 @@ export class SharePointService {
   async getSourceFileForJob(
     jobNumber: string,
     areaType: "Units" | "Common Areas"
-  ): Promise<{ buffer: ArrayBuffer; fileName: string; fileUrl: string } | null> {
+  ): Promise<{ buffer: ArrayBuffer; fileName: string; fileUrl: string } | null> { // eslint-disable-line @rushstack/no-new-null
     const sourceFiles = await this.sp.web.lists
       .getByTitle(LIBRARY_NAMES.SOURCE_FILES)
       .items.filter(
@@ -109,6 +113,43 @@ export class SharePointService {
   }
 
   /**
+   * Get all source files for a job/area type (oldest first).
+   * Used when merging multiple uploads: parse each file and merge readings so newer overwrites older.
+   */
+  async getAllSourceFilesForJob(
+    jobNumber: string,
+    areaType: "Units" | "Common Areas"
+  ): Promise<Array<{ buffer: ArrayBuffer; fileName: string; fileUrl: string; created: string }>> {
+    const sourceFiles = await this.sp.web.lists
+      .getByTitle(LIBRARY_NAMES.SOURCE_FILES)
+      .items.filter(
+        `${FIELDS.SOURCE_FILES.JOB_NUMBER} eq '${this.escapeOData(jobNumber)}' and ${FIELDS.SOURCE_FILES.AREA_TYPE} eq '${areaType}'`
+      )
+      .select("Id", "Title", "FileRef", "FileLeafRef", "Created")
+      .orderBy("Created", true)();
+
+    const result: Array<{ buffer: ArrayBuffer; fileName: string; fileUrl: string; created: string }> = [];
+    for (const item of sourceFiles) {
+      if (!item.FileRef) continue;
+      try {
+        const buffer = await this.sp.web
+          .getFileByServerRelativePath(item.FileRef)
+          .getBuffer();
+        const fileName = item.FileLeafRef || item.Title || "unknown.xlsx";
+        result.push({
+          buffer,
+          fileName,
+          fileUrl: item.FileRef,
+          created: item.Created ?? "",
+        });
+      } catch (error) {
+        console.error("Failed to get source file content:", error);
+      }
+    }
+    return result;
+  }
+
+  /**
    * Update the processing status of a source file
    */
   async updateSourceFileStatus(
@@ -134,7 +175,25 @@ export class SharePointService {
   }
 
   /**
-   * Get source files by job number
+   * Get data status for a job (which area types have uploaded source files).
+   * Normalizes AreaType in case SharePoint returns different casing or format.
+   */
+  async getJobDataStatus(jobNumber: string): Promise<{ hasUnits: boolean; hasCommonAreas: boolean }> {
+    const files = await this.getSourceFilesByJob(jobNumber);
+    const areaTypes = new Set<string>();
+    for (const f of files) {
+      const at = f.AreaType;
+      const value = typeof at === "string" ? at.trim() : (at as { Value?: string })?.Value ?? "";
+      if (value) areaTypes.add(value);
+    }
+    return {
+      hasUnits: areaTypes.has("Units"),
+      hasCommonAreas: areaTypes.has("Common Areas"),
+    };
+  }
+
+  /**
+   * Get source files by job number (all areas). Uses top(500) so both Units and Common Areas are returned.
    */
   async getSourceFilesByJob(jobNumber: string): Promise<ISourceFileItem[]> {
     return await this.sp.web.lists
@@ -149,7 +208,8 @@ export class SharePointService {
         "ProcessedResultsLink",
         "Created",
         "Modified"
-      )();
+      )
+      .top(500)();
   }
 
   /**
@@ -251,6 +311,24 @@ export class SharePointService {
   async getProcessedResultContent(fileUrl: string): Promise<string> {
     const file = this.sp.web.getFileByServerRelativePath(fileUrl);
     return await file.getText();
+  }
+
+  /**
+   * Get the latest saved summary JSON for a job (for View Report without re-running pipeline).
+   */
+  async getLatestSummaryJsonByJob(jobNumber: string): Promise<string | null> {
+    const items = await this.sp.web.lists
+      .getByTitle(LIBRARY_NAMES.PROCESSED_RESULTS)
+      .items.filter(`${FIELDS.PROCESSED_RESULTS.JOB_NUMBER} eq '${this.escapeOData(jobNumber)}'`)
+      .select("Id", "FileRef", "Created")
+      .orderBy("Created", false)
+      .top(1)();
+
+    if (items.length === 0 || !(items[0] as { FileRef?: string }).FileRef) {
+      return null;
+    }
+    const fileRef = (items[0] as { FileRef: string }).FileRef;
+    return await this.getProcessedResultContent(fileRef);
   }
 
   // ============================================

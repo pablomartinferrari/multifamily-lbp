@@ -12,11 +12,11 @@
   "preconfiguredEntries": [{
     "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
     "group": { "default": "Advanced" },
-    "title": { "default": "LBP Multifamily Convert" },
-    "description": { "default": "LBP Multifamily conversion tool for XRF lead paint inspection data" },
+    "title": { "default": "Generate Lead Paint Multifamily Report" },
+    "description": { "default": "Generate HUD/EPA lead paint multifamily reports from XRF inspection data" },
     "officeFabricIconFontName": "TestBeaker",
     "properties": {
-      "description": "LBP Multifamily Convert",
+      "description": "Generate Lead Paint Multifamily Report",
       "openAIProvider": "openai",
       "openAIApiKey": "",
       "openAIModel": "gpt-4o-mini",

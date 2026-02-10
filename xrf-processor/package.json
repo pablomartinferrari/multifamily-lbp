@@ -1,6 +1,6 @@
 {
   "name": "lbp-multifamily-convert",
-  "version": "1.3.0",
+  "version": "1.6.0",
   "private": true,
   "engines": {
     "node": ">=18.17.1 <19.0.0"
@@ -9,6 +9,7 @@
   "scripts": {
     "build": "gulp bundle",
     "clean": "gulp clean",
+    "serve": "gulp serve",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"

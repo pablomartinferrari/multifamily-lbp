@@ -39,6 +39,8 @@ export interface IXrfReading {
   condition?: string;
   /** When reading was taken */
   timestamp?: Date;
+  /** Dataset origin when combining Units + Common Areas for report */
+  areaType?: "Units" | "Common Areas";
 
   // === RAW DATA ===
   /** Original Excel row data for debugging */

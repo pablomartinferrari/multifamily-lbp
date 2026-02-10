@@ -63,8 +63,8 @@ export default class XrfProcessorWebPart extends BaseClientSideWebPart<IXrfProce
     // Initialize PnP JS
     this._sp = spfi().using(SPFx(this.context));
     
-    // Initialize service factory for global access
-    initializeServices(this._sp);
+    // Initialize service factory for global access (pass context so job lookup uses ETC Files site)
+    initializeServices(this._sp, this.context);
     
     // Initialize OpenAI services with web part properties
     this._initializeAIServices();

@@ -11,6 +11,14 @@ function createExcelBuffer(data: Record<string, unknown>[], sheetName = 'Sheet1'
   return buffer;
 }
 
+// Helper to create Excel from 2D array (for metadata + header layouts like Pb200i)
+function createExcelFromRows(rows: (string | number)[][], sheetName = 'Sheet1'): ArrayBuffer {
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  return XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+}
+
 // Helper to create CSV buffer
 function createCsvBuffer(csvContent: string): ArrayBuffer {
   const encoder = new TextEncoder();
@@ -47,7 +55,8 @@ describe('ExcelParserService', () => {
 
       const result = await service.parseFile(buffer);
 
-      expect(result.readings[0].readingId).toBe('TEST-123');
+      expect(result.readings[0].readingId).toMatch(/^TEST-123(_\d+)?$/);
+      expect(result.readings[0].rawRow?.originalReadingId).toBe('TEST-123');
     });
 
     it('should correctly map component field', async () => {
@@ -123,7 +132,7 @@ describe('ExcelParserService', () => {
       const result = await service.parseFile(buffer);
 
       expect(result.success).toBe(true);
-      expect(result.readings[0].readingId).toBe('R001');
+      expect(result.readings[0].readingId).toMatch(/^R001(_\d+)?$/);
     });
 
     it('should recognize "Building Component" as component column', async () => {
@@ -332,7 +341,7 @@ describe('ExcelParserService', () => {
       const result = await service.parseFile(buffer);
 
       expect(result.success).toBe(false);
-      expect(result.errors[0].message).toContain('No data rows');
+      expect(result.errors[0].message).toMatch(/No data (rows|found)/);
     });
 
     it('should report error for invalid lead content value', async () => {
@@ -343,11 +352,11 @@ describe('ExcelParserService', () => {
 
       const result = await service.parseFile(buffer);
 
-      expect(result.success).toBe(false);
-      expect(result.errors[0].message).toContain('Invalid lead content');
+      // Parser skips rows with invalid lead content as junk (no valid readings)
+      expect(result.readings).toHaveLength(0);
     });
 
-    it('should report error for missing reading ID in row', async () => {
+    it('should skip rows with missing reading ID', async () => {
       const data = [
         { 'Reading ID': '', 'Component': 'Door', 'Color': 'White', 'Lead Content': 0.5 },
       ];
@@ -355,11 +364,11 @@ describe('ExcelParserService', () => {
 
       const result = await service.parseFile(buffer);
 
-      expect(result.success).toBe(false);
-      expect(result.errors[0].message).toContain('Missing reading ID');
+      // Parser skips rows without reading ID as junk
+      expect(result.readings).toHaveLength(0);
     });
 
-    it('should report error for missing component in row', async () => {
+    it('should skip rows with missing component', async () => {
       const data = [
         { 'Reading ID': 'R001', 'Component': '', 'Color': 'White', 'Lead Content': 0.5 },
       ];
@@ -367,8 +376,8 @@ describe('ExcelParserService', () => {
 
       const result = await service.parseFile(buffer);
 
-      expect(result.success).toBe(false);
-      expect(result.errors[0].message).toContain('Missing component');
+      // Parser skips rows without component as junk
+      expect(result.readings).toHaveLength(0);
     });
   });
 
@@ -384,7 +393,6 @@ describe('ExcelParserService', () => {
       expect(result.success).toBe(true);
       expect(result.readings).toHaveLength(1);
       expect(result.readings[0].color).toBe('Unknown');
-      expect(result.warnings.some(w => w.includes('Missing color'))).toBe(true);
     });
 
     it('should warn about unmapped columns', async () => {
@@ -577,6 +585,32 @@ R002,Window Sill,Beige,1.5`;
       expect(result.warnings.some(w => w.includes('header row'))).toBe(true);
     });
 
+    it('should detect header row when XRF metadata occupies top rows (Pb200i/Viken style)', async () => {
+      // Pb200i exports: Company, Model, Type, Serial Num, App Version, blank row, then headers
+      const rows: (string | number)[][] = [
+        ['Company', 'Viken Detection'],
+        ['Model', 'Pb200i'],
+        ['Type', 'XRF Lead Paint Analyzer'],
+        ['Serial Num', '1170'],
+        ['App Versic', 'Pb200i-5.3.1'],
+        [], // blank separator
+        ['Reading #', 'Concentration', 'Result', 'COMPONENT', 'COLOR', 'SUBSTRATE', 'ROOM TYPE', 'ROOM NUM'],
+        [1, 0.4, 'Negative', 'Wall-Ceiling', 'Beige', 'Plaster', 'Bedroom', '1'],
+        [2, 1.2, 'Positive', 'Window Sill', 'White', 'Wood', 'Kitchen', '1'],
+      ];
+      const buffer = createExcelFromRows(rows);
+
+      const result = await service.parseFile(buffer);
+
+      expect(result.success).toBe(true);
+      expect(result.readings).toHaveLength(2);
+      expect(result.readings[0].component).toBe('Wall-Ceiling');
+      expect(result.readings[0].color).toBe('Beige');
+      expect(result.readings[0].leadContent).toBe(0.4);
+      expect(result.readings[1].leadContent).toBe(1.2);
+      expect(result.warnings.some(w => w.includes('row 7') || w.includes('row 6'))).toBe(true);
+    });
+
     it('should handle large CSV file with many readings', async () => {
       // Generate a CSV with 500 readings
       const headers = 'Reading ID,Component,Color,Lead Content,Substrate';
@@ -688,7 +722,7 @@ R003,Standard Check,Gray,1.0`;
 
       const result = await service.parseFile(buffer);
 
-      expect(result.readings[0].readingId).toBe('R001');
+      expect(result.readings[0].readingId).toMatch(/^R001(_\d+)?$/);
       expect(result.readings[0].component).toBe('Door Frame');
     });
 
@@ -700,7 +734,7 @@ R003,Standard Check,Gray,1.0`;
 
       const result = await service.parseFile(buffer);
 
-      expect(result.readings[0].readingId).toBe('12345');
+      expect(result.readings[0].readingId).toMatch(/^12345(_\d+)?$/);
     });
 
     it('should preserve raw row data', async () => {

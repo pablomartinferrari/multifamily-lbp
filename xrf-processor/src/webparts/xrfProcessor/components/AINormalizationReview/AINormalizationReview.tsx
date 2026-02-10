@@ -6,13 +6,11 @@ import {
   Text,
   PrimaryButton,
   DefaultButton,
-  IconButton,
   TextField,
   MessageBar,
   MessageBarType,
   Separator,
   ProgressIndicator,
-  IIconProps,
 } from "@fluentui/react";
 import { IComponentNormalization } from "../../models/INormalization";
 import styles from "./AINormalizationReview.module.scss";
@@ -41,9 +39,6 @@ interface INormalizationState extends IComponentNormalization {
 
 /** Confidence threshold for auto-accepting normalizations */
 const HIGH_CONFIDENCE_THRESHOLD = 0.8;
-
-const checkIcon: IIconProps = { iconName: "CheckMark" };
-const cancelIcon: IIconProps = { iconName: "Cancel" };
 
 export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
   isOpen,
@@ -92,15 +87,6 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
         source: item.source,
       }));
     onApprove(approved);
-  };
-
-  const acceptAllHighConfidence = (): void => {
-    setItems((prev) =>
-      prev.map((item) => ({
-        ...item,
-        isAccepted: item.confidence >= HIGH_CONFIDENCE_THRESHOLD,
-      }))
-    );
   };
 
   const acceptAll = (): void => {
@@ -191,13 +177,41 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
             </Stack>
           </Stack>
 
-          {/* Accept/Reject button */}
-          <IconButton
-            iconProps={item.isAccepted ? checkIcon : cancelIcon}
-            onClick={() => handleToggle(globalIndex)}
-            className={item.isAccepted ? styles.acceptBtn : styles.rejectBtn}
-            title={item.isAccepted ? "Click to reject" : "Click to accept"}
-          />
+          {/* Accept / Reject — explicit buttons so it's clear they're clickable */}
+          <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
+            {item.isAccepted ? (
+              <PrimaryButton
+                text="Accept"
+                onClick={() => handleToggle(globalIndex)}
+                iconProps={{ iconName: "CheckMark" }}
+                title="Currently accepted — click Reject to keep original name"
+              />
+            ) : (
+              <DefaultButton
+                text="Accept"
+                onClick={() => handleToggle(globalIndex)}
+                iconProps={{ iconName: "CheckMark" }}
+                styles={{ root: { borderColor: "#107c10", color: "#107c10" } }}
+                title="Use this suggested name in the report"
+              />
+            )}
+            {!item.isAccepted ? (
+              <DefaultButton
+                text="Reject"
+                onClick={() => handleToggle(globalIndex)}
+                iconProps={{ iconName: "Cancel" }}
+                styles={{ root: { borderColor: "#a4262c", color: "#a4262c" } }}
+                title="Currently rejected — click Accept to use suggested name"
+              />
+            ) : (
+              <DefaultButton
+                text="Reject"
+                onClick={() => handleToggle(globalIndex)}
+                iconProps={{ iconName: "Cancel" }}
+                title="Keep original name instead of suggested"
+              />
+            )}
+          </Stack>
         </Stack>
       </div>
     );
@@ -206,9 +220,9 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
   const onRenderFooterContent = (): JSX.Element => (
     <Stack horizontal tokens={{ childrenGap: 8 }}>
       <PrimaryButton
-        text={`Apply ${acceptedCount} Selected`}
+        text={acceptedCount === 0 ? "Continue without changes" : `Apply ${acceptedCount} selected and continue`}
         onClick={handleApprove}
-        disabled={acceptedCount === 0 || isLoading}
+        disabled={isLoading}
         iconProps={{ iconName: "CheckMark" }}
       />
       <DefaultButton text="Cancel" onClick={onCancel} disabled={isLoading} />
@@ -219,13 +233,22 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
     <Panel
       isOpen={isOpen}
       type={PanelType.medium}
-      headerText="AI Component Normalization"
+      headerText="Component Normalization"
       onDismiss={onCancel}
       onRenderFooterContent={onRenderFooterContent}
       isFooterAtBottom={true}
       closeButtonAriaLabel="Close"
     >
       <Stack tokens={{ childrenGap: 16 }} className={styles.container}>
+        {/* Subtitle: what the user is choosing */}
+        {!isLoading && (
+          <MessageBar messageBarType={MessageBarType.info}>
+            <Text block>
+              <strong>What you&apos;re reviewing:</strong> Component names (and substrate names) are standardized so the report uses consistent terms. Accept each mapping as-is, edit the suggested name, or reject it to keep the original. Substrate names were also normalized automatically in the background.
+            </Text>
+          </MessageBar>
+        )}
+
         {/* Loading state */}
         {isLoading && (
           <Stack tokens={{ childrenGap: 8 }}>
@@ -236,34 +259,26 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
         {/* Summary */}
         {!isLoading && items.length > 0 && (
           <>
-            <MessageBar messageBarType={MessageBarType.info}>
-              <Text>
-                {acceptedCount} of {totalCount} normalization(s) selected for
-                approval.
-              </Text>
-            </MessageBar>
+            <Text variant="medium" block className={styles.sectionTitle}>
+              Component names — {acceptedCount} of {totalCount} selected
+            </Text>
+            <Text variant="small" block styles={{ root: { color: "#605e5c", marginBottom: 8 } }}>
+              For each row, click <strong>Accept</strong> to use the suggested name in the report, or <strong>Reject</strong> to keep the original. You can edit the suggested name in the text field before accepting.
+            </Text>
 
-            {/* Bulk actions */}
-            <Stack
-              horizontal
-              tokens={{ childrenGap: 8 }}
-              horizontalAlign="end"
-              wrap
-            >
+            {/* Bulk actions: two clear options */}
+            <Stack horizontal tokens={{ childrenGap: 8 }} horizontalAlign="end" wrap>
               <DefaultButton
-                text="Accept All High Confidence"
-                onClick={acceptAllHighConfidence}
-                iconProps={{ iconName: "LikeSolid" }}
-              />
-              <DefaultButton
-                text="Accept All"
+                text="Accept all"
                 onClick={acceptAll}
                 iconProps={{ iconName: "CheckList" }}
+                title="Use every suggested name for the report"
               />
               <DefaultButton
-                text="Reject All"
+                text="Reject all"
                 onClick={rejectAll}
                 iconProps={{ iconName: "Clear" }}
+                title="Keep all original names"
               />
             </Stack>
           </>
@@ -276,11 +291,11 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
             <Stack tokens={{ childrenGap: 12 }}>
               <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
                 <Text variant="large" className={styles.sectionTitle}>
-                  From Cache ({cachedItems.length})
+                  Previously approved — Component names ({cachedItems.length})
                 </Text>
               </Stack>
               <MessageBar messageBarType={MessageBarType.success}>
-                These components were previously normalized and approved.
+                These component names were previously normalized and approved. They will be used as-is unless you change them below.
               </MessageBar>
               {cachedItems.map((item, index) => renderNormalizationCard(item, index))}
             </Stack>
@@ -293,7 +308,7 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
             <Separator />
             <Stack tokens={{ childrenGap: 12 }}>
               <Text variant="large" className={styles.sectionTitle}>
-                New AI Suggestions ({aiItems.length})
+                New AI suggestions — Component names ({aiItems.length})
               </Text>
               {aiItems.map((item, index) => renderNormalizationCard(item, index))}
             </Stack>
@@ -306,7 +321,7 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
             <Separator />
             <Stack tokens={{ childrenGap: 12 }}>
               <Text variant="large" className={styles.sectionTitle}>
-                Manual Entries ({manualItems.length})
+                Manual entries — Component names ({manualItems.length})
               </Text>
               {manualItems.map((item, index) => renderNormalizationCard(item, index))}
             </Stack>
@@ -316,8 +331,7 @@ export const AINormalizationReview: React.FC<IAINormalizationReviewProps> = ({
         {/* Empty state */}
         {!isLoading && items.length === 0 && (
           <MessageBar messageBarType={MessageBarType.warning}>
-            No normalizations to review. All components may already be
-            standardized.
+            No component name mappings to review. All names may already be standardized. You can still continue to the next step.
           </MessageBar>
         )}
       </Stack>

@@ -21,28 +21,54 @@ import { HELP_SYSTEM_PROMPT } from "../../config/HelpContext";
 
 const styles = mergeStyleSets({
   panel: {
+    // Panel content: no padding, flex column, take full height
     ".ms-Panel-content": {
       padding: "0",
       display: "flex",
       flexDirection: "column",
       height: "100%",
+      minHeight: 0,
+      overflow: "hidden",
+    },
+    // Stop the panel from scrolling; only our messages area should scroll
+    ".ms-Panel-scrollableContent": {
+      flex: "1 1 0",
+      minHeight: 0,
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
+    },
+    ".ms-Panel-scrollableContent > div": {
+      display: "flex",
+      flexDirection: "column",
+      flex: "1 1 0",
+      minHeight: 0,
+      overflow: "hidden",
     },
   },
   chatContainer: {
     display: "flex",
     flexDirection: "column",
-    height: "100%",
+    flex: "1 1 0",
+    minHeight: 0,
+    maxHeight: "80vh",
     overflow: "hidden",
   },
   messagesContainer: {
-    flex: 1,
+    flex: "1 1 0",
+    minHeight: 0,
     overflowY: "auto",
+    overflowX: "hidden",
     padding: "16px",
     display: "flex",
     flexDirection: "column",
     gap: "12px",
   },
+  errorBar: {
+    flexShrink: 0,
+  },
   inputContainer: {
+    flexShrink: 0,
     padding: "16px",
     borderTop: "1px solid #edebe9",
     backgroundColor: "#faf9f8",
@@ -238,7 +264,7 @@ export const HelpChatPanel: React.FC<IHelpChatPanelProps> = ({
           {messages.length === 0 ? (
             <div className={styles.welcomeMessage}>
               <Text variant="large" block style={{ marginBottom: 8 }}>
-                ✨ Hi! I'm your AI-powered assistant.
+                ✨ Hi! I&apos;m your AI-powered assistant.
               </Text>
               <Text block>
                 Ask me anything about how to use the XRF Processor.
@@ -281,13 +307,15 @@ export const HelpChatPanel: React.FC<IHelpChatPanelProps> = ({
         </div>
 
         {error && (
-          <MessageBar
-            messageBarType={MessageBarType.error}
-            onDismiss={() => setError(null)}
-            dismissButtonAriaLabel="Close"
-          >
-            {error}
-          </MessageBar>
+          <div className={styles.errorBar}>
+            <MessageBar
+              messageBarType={MessageBarType.error}
+              onDismiss={() => setError(null)}
+              dismissButtonAriaLabel="Close"
+            >
+              {error}
+            </MessageBar>
+          </div>
         )}
 
         <div className={styles.inputContainer}>

@@ -419,7 +419,8 @@ describe('SummaryService', () => {
         unitReadings
       );
 
-      expect(result.commonAreaSummary).toBeUndefined();
+      expect(result.commonAreaSummary).toBeDefined();
+      expect(result.commonAreaSummary?.totalReadings).toBe(0);
       expect(result.unitsSummary).toBeDefined();
     });
 
@@ -434,10 +435,11 @@ describe('SummaryService', () => {
       );
 
       expect(result.commonAreaSummary).toBeDefined();
-      expect(result.unitsSummary).toBeUndefined();
+      expect(result.unitsSummary).toBeDefined();
+      expect(result.unitsSummary?.totalReadings).toBe(0);
     });
 
-    it('should handle empty arrays as undefined summaries', () => {
+    it('should return empty dataset summaries when no readings', () => {
       const result = service.generateJobSummary(
         'JOB-004',
         'test.xlsx',
@@ -445,8 +447,10 @@ describe('SummaryService', () => {
         []
       );
 
-      expect(result.commonAreaSummary).toBeUndefined();
-      expect(result.unitsSummary).toBeUndefined();
+      expect(result.commonAreaSummary).toBeDefined();
+      expect(result.commonAreaSummary?.totalReadings).toBe(0);
+      expect(result.unitsSummary).toBeDefined();
+      expect(result.unitsSummary?.totalReadings).toBe(0);
     });
 
     it('should include processedDate', () => {

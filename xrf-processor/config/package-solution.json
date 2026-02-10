@@ -3,7 +3,7 @@
   "solution": {
     "name": "lbp-multifamily-convert",
     "id": "5ac8b540-beb3-430e-a7f9-692ada01fd42",
-    "version": "1.3.0.0",
+    "version": "1.6.0.0",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
@@ -30,7 +30,7 @@
         "title": "LBP Multifamily Convert",
         "description": "Activates the XRF Lead Paint Processor web part for processing inspection data.",
         "id": "3f86ab5f-294b-4a3f-9db8-bce098d4a795",
-        "version": "1.3.0.0"
+        "version": "1.6.0.0"
       }
     ]
   },

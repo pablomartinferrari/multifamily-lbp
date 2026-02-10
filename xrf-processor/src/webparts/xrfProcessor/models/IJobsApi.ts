@@ -2,6 +2,7 @@
  * Types for the 2ETC Jobs API (http://api.2etc.com/api/jobs)
  * Used to link the Job Number entered in the app to job records.
  */
+/* eslint-disable @rushstack/no-new-null -- API response uses null for optional fields */
 
 export interface IJobsApiClient {
   id: number;

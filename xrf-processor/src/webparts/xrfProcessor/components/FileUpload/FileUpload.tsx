@@ -11,10 +11,11 @@ import {
   ProgressIndicator,
   Icon,
   Text,
+  Link,
 } from "@fluentui/react";
 import styles from "./FileUpload.module.scss";
-import { getJobsApiService } from "../../services/JobsApiService";
-import type { IJobsApiJob } from "../../models/IJobsApi";
+import { getJobLookupService } from "../../services/JobLookupService";
+import type { IJobLookupResult } from "../../models/IJobLookup";
 
 export interface IFileUploadProps {
   /** Called when user submits the form */
@@ -51,23 +52,16 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
   const [areaType, setAreaType] = React.useState<"Units" | "Common Areas">("Units");
   const [error, setError] = React.useState<string | undefined>(undefined);
   const [isDragging, setIsDragging] = React.useState(false);
-  const [jobLookup, setJobLookup] = React.useState<IJobsApiJob | null>(null);
+  const [jobLookup, setJobLookup] = React.useState<IJobLookupResult | null>(null);
   const [jobLookupLoading, setJobLookupLoading] = React.useState(false);
   const [jobLookupError, setJobLookupError] = React.useState<string | null>(null);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Debounced lookup against 2ETC Jobs API (jobId = Job Number)
+  // Debounced lookup in ETC Files SharePoint library (job number = folder name)
   React.useEffect(() => {
     const v = jobNumber.trim();
     if (!v) {
-      setJobLookup(null);
-      setJobLookupError(null);
-      setJobLookupLoading(false);
-      return;
-    }
-    const id = parseInt(v, 10);
-    if (Number.isNaN(id)) {
       setJobLookup(null);
       setJobLookupError(null);
       setJobLookupLoading(false);
@@ -77,15 +71,15 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
     const t = window.setTimeout(() => {
       setJobLookupLoading(true);
       setJobLookupError(null);
-      getJobsApiService()
-        .getJobByJobId(v)
+      getJobLookupService()
+        .findJobByJobNumber(v)
         .then((job) => {
           setJobLookup(job);
           setJobLookupError(null);
         })
         .catch((e) => {
           setJobLookup(null);
-          setJobLookupError(e instanceof Error ? e.message : "Could not reach jobs API");
+          setJobLookupError(e instanceof Error ? e.message : "Could not find job in ETC Files");
         })
         .finally(() => setJobLookupLoading(false));
     }, JOB_LOOKUP_DEBOUNCE_MS);
@@ -223,39 +217,46 @@ export const FileUpload: React.FC<IFileUploadProps> = ({
         required
         value={jobNumber}
         onChange={(_, v) => setJobNumber(v || "")}
-        placeholder="Enter 2ETC Job ID (e.g., 287459)"
+        placeholder="Enter job number (e.g., 287459)"
         disabled={isProcessing}
         className={styles.field}
-        description="Links to 2ETC jobs. Enter the numeric Job ID from the 2ETC system."
+        description="Validated against the ETC Files document library. Enter the job number that matches a folder in ETC Files."
       />
 
-      {/* 2ETC Job lookup result */}
+      {/* Job lookup result (ETC Files SharePoint library) */}
       {jobLookupLoading && jobNumber.trim() && (
         <MessageBar messageBarType={MessageBarType.info}>
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
             <Icon iconName="Search" />
-            <Text variant="small">Looking up job in 2ETC…</Text>
+            <Text variant="small">Looking up job in ETC Files…</Text>
           </Stack>
         </MessageBar>
       )}
       {!jobLookupLoading && jobLookup && (
         <MessageBar messageBarType={MessageBarType.success}>
           <Stack tokens={{ childrenGap: 4 }}>
-            <Text variant="small" className={styles.jobLinkTitle}>
-              Linked to 2ETC Job {jobLookup.jobId}
+            <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
+              Job {jobLookup.jobId} found in ETC Files
+              {jobLookup.year && ` (${jobLookup.year})`}
             </Text>
-            <Text variant="small">
-              Client: {jobLookup.client.name}
-              {jobLookup.facilityName ? ` · Facility: ${jobLookup.facilityName}` : ""}
-              {jobLookup.facilityAddress ? ` · ${jobLookup.facilityAddress}` : ""}
-            </Text>
+            {(jobLookup.client?.name || jobLookup.facilityAddress) && (
+              <Text variant="small">
+                {jobLookup.client?.name && `Client: ${jobLookup.client.name}`}
+                {jobLookup.facilityAddress && ` · ${jobLookup.facilityAddress}`}
+              </Text>
+            )}
+            {jobLookup.folderUrl && (
+              <Link href={jobLookup.folderUrl} target="_blank" rel="noopener noreferrer">
+                Open job folder in ETC Files
+              </Link>
+            )}
           </Stack>
         </MessageBar>
       )}
       {!jobLookupLoading && jobLookupError && jobNumber.trim() && (
         <MessageBar messageBarType={MessageBarType.warning}>
           <Text variant="small">
-            Could not verify job in 2ETC ({jobLookupError}). You can still process using this job number.
+            Could not find this job in ETC Files ({jobLookupError}). You can still process using this job number.
           </Text>
         </MessageBar>
       )}

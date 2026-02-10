@@ -21,6 +21,9 @@ import {
   IAverageComponentSummary,
   IUniformComponentSummary,
   INonUniformComponentSummary,
+  ILeadPaintHazard,
+  STATISTICAL_SAMPLE_SIZE,
+  POSITIVE_PERCENT_THRESHOLD,
 } from "../../models/ISummary";
 import { IXrfReading } from "../../models/IXrfReading";
 import { AllShotsReport } from "../AllShotsReport";
@@ -231,6 +234,13 @@ function getNonUniformColumns(
   ];
 }
 
+// Classification rules (documented for report consistency)
+const CLASSIFICATION_RULES = {
+  average: `Averaged: Component + substrate combinations with ≥${STATISTICAL_SAMPLE_SIZE} readings. Result is POSITIVE if positive % > ${POSITIVE_PERCENT_THRESHOLD}%, otherwise NEGATIVE (HUD/EPA statistical sampling).`,
+  uniform: `Uniform: Component + substrate with <${STATISTICAL_SAMPLE_SIZE} readings where every reading has the same result (all positive or all negative).`,
+  conflicting: `Conflicting (non-uniform): Component + substrate with <${STATISTICAL_SAMPLE_SIZE} readings and mixed positive/negative results. Requires location-specific review.`,
+};
+
 // Dataset Summary View (defined before ResultsSummary that uses it)
 interface IDatasetSummaryViewProps {
   summary: IDatasetSummary;
@@ -247,6 +257,16 @@ const DatasetSummaryView: React.FC<IDatasetSummaryViewProps> = ({
 
   return (
     <Stack tokens={{ childrenGap: 24 }} className={styles.datasetContainer}>
+      {/* Classification rules (documented) */}
+      <MessageBar messageBarType={MessageBarType.info}>
+        <Stack tokens={{ childrenGap: 4 }}>
+          <Text variant="small" block><strong>Classification rules</strong></Text>
+          <Text variant="small" block>{CLASSIFICATION_RULES.average}</Text>
+          <Text variant="small" block>{CLASSIFICATION_RULES.uniform}</Text>
+          <Text variant="small" block>{CLASSIFICATION_RULES.conflicting}</Text>
+        </Stack>
+      </MessageBar>
+
       {/* Stats Cards */}
       <Stack horizontal tokens={{ childrenGap: 16 }} wrap className={styles.statsRow}>
         <div className={styles.statCard}>
@@ -267,21 +287,23 @@ const DatasetSummaryView: React.FC<IDatasetSummaryViewProps> = ({
         </div>
       </Stack>
 
-      {/* Average Components Section */}
-      {summary.averageComponents.length > 0 && (
-        <Stack className={styles.section}>
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-            <Icon iconName="BarChart4" className={styles.sectionIcon} />
-            <Text variant="large" className={styles.sectionTitle}>
-              Average Components
-            </Text>
-            <TooltipHost content="Components with 40+ readings use statistical averaging (2.5% threshold)">
-              <Icon iconName="Info" className={styles.infoIcon} />
-            </TooltipHost>
-          </Stack>
-          <Text className={styles.sectionSubtitle}>
-            {summary.averageComponents.length} component(s) with ≥40 readings
+      {/* Averaged: always show section (empty when no shots apply) */}
+      <Stack className={styles.section}>
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Icon iconName="BarChart4" className={styles.sectionIcon} />
+          <Text variant="large" className={styles.sectionTitle}>
+            Averaged
           </Text>
+          <TooltipHost content={CLASSIFICATION_RULES.average}>
+            <Icon iconName="Info" className={styles.infoIcon} />
+          </TooltipHost>
+        </Stack>
+        <Text className={styles.sectionSubtitle}>
+          {summary.averageComponents.length === 0
+            ? "No components in this category (need ≥40 readings per component/substrate)"
+            : `${summary.averageComponents.length} component(s) with ≥40 readings`}
+        </Text>
+        {summary.averageComponents.length > 0 ? (
           <DetailsList
             items={summary.averageComponents}
             columns={getAverageColumns()}
@@ -290,24 +312,28 @@ const DatasetSummaryView: React.FC<IDatasetSummaryViewProps> = ({
             compact
             className={styles.table}
           />
-        </Stack>
-      )}
+        ) : (
+          <MessageBar messageBarType={MessageBarType.info}>No shots apply.</MessageBar>
+        )}
+      </Stack>
 
-      {/* Uniform Components Section */}
-      {summary.uniformComponents.length > 0 && (
-        <Stack className={styles.section}>
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-            <Icon iconName="CheckList" className={styles.sectionIcon} />
-            <Text variant="large" className={styles.sectionTitle}>
-              Uniform Components
-            </Text>
-            <TooltipHost content="Components with <40 readings where all results are the same">
-              <Icon iconName="Info" className={styles.infoIcon} />
-            </TooltipHost>
-          </Stack>
-          <Text className={styles.sectionSubtitle}>
-            {summary.uniformComponents.length} component(s) with consistent results
+      {/* Uniform: always show section (empty when no shots apply) */}
+      <Stack className={styles.section}>
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Icon iconName="CheckList" className={styles.sectionIcon} />
+          <Text variant="large" className={styles.sectionTitle}>
+            Uniform
           </Text>
+          <TooltipHost content={CLASSIFICATION_RULES.uniform}>
+            <Icon iconName="Info" className={styles.infoIcon} />
+          </TooltipHost>
+        </Stack>
+        <Text className={styles.sectionSubtitle}>
+          {summary.uniformComponents.length === 0
+            ? "No components in this category (<40 readings, all same result)"
+            : `${summary.uniformComponents.length} component(s) with consistent results`}
+        </Text>
+        {summary.uniformComponents.length > 0 ? (
           <DetailsList
             items={summary.uniformComponents}
             columns={getUniformColumns()}
@@ -316,46 +342,92 @@ const DatasetSummaryView: React.FC<IDatasetSummaryViewProps> = ({
             compact
             className={styles.table}
           />
-        </Stack>
-      )}
-
-      {/* Non-Uniform Components Section */}
-      {summary.nonUniformComponents.length > 0 && (
-        <Stack className={styles.section}>
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-            <Icon iconName="Warning" className={styles.sectionIconWarning} />
-            <Text variant="large" className={styles.sectionTitle}>
-              Non-Uniform Components
-            </Text>
-            <TooltipHost content="Components with <40 readings and mixed results - requires individual review">
-              <Icon iconName="Info" className={styles.infoIcon} />
-            </TooltipHost>
-          </Stack>
-          <Text className={styles.sectionSubtitle}>
-            {summary.nonUniformComponents.length} component(s) with mixed results
-          </Text>
-          <MessageBar messageBarType={MessageBarType.warning} className={styles.warningBar}>
-            These components have mixed positive/negative results and may require location-specific inspection.
-          </MessageBar>
-          <DetailsList
-            items={summary.nonUniformComponents}
-            columns={getNonUniformColumns(onViewReadings)}
-            selectionMode={SelectionMode.none}
-            layoutMode={DetailsListLayoutMode.justified}
-            compact
-            className={styles.table}
-          />
-        </Stack>
-      )}
-
-      {/* Empty state */}
-      {summary.averageComponents.length === 0 &&
-        summary.uniformComponents.length === 0 &&
-        summary.nonUniformComponents.length === 0 && (
-          <MessageBar messageBarType={MessageBarType.info}>
-            No component summaries available.
-          </MessageBar>
+        ) : (
+          <MessageBar messageBarType={MessageBarType.info}>No shots apply.</MessageBar>
         )}
+      </Stack>
+
+      {/* Conflicting (non-uniform): always show section (empty when no shots apply) */}
+      <Stack className={styles.section}>
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Icon iconName="Warning" className={styles.sectionIconWarning} />
+          <Text variant="large" className={styles.sectionTitle}>
+            Conflicting
+          </Text>
+          <TooltipHost content={CLASSIFICATION_RULES.conflicting}>
+            <Icon iconName="Info" className={styles.infoIcon} />
+          </TooltipHost>
+        </Stack>
+        <Text className={styles.sectionSubtitle}>
+          {summary.nonUniformComponents.length === 0
+            ? "No components in this category (<40 readings, mixed positive/negative)"
+            : `${summary.nonUniformComponents.length} component(s) with mixed results`}
+        </Text>
+        {summary.nonUniformComponents.length > 0 ? (
+          <>
+            <MessageBar messageBarType={MessageBarType.warning} className={styles.warningBar}>
+              These components have mixed positive/negative results and may require location-specific inspection.
+            </MessageBar>
+            <DetailsList
+              items={summary.nonUniformComponents}
+              columns={getNonUniformColumns(onViewReadings)}
+              selectionMode={SelectionMode.none}
+              layoutMode={DetailsListLayoutMode.justified}
+              compact
+              className={styles.table}
+            />
+          </>
+        ) : (
+          <MessageBar messageBarType={MessageBarType.info}>No shots apply.</MessageBar>
+        )}
+      </Stack>
+    </Stack>
+  );
+};
+
+// Hazards View - Individual lead paint hazards with remediation options
+const HazardsView: React.FC<{ hazards: ILeadPaintHazard[] }> = ({ hazards }) => {
+  const commonAreaHazards = hazards.filter((h) => h.areaType === "COMMON_AREA");
+  const unitHazards = hazards.filter((h) => h.areaType === "UNITS");
+
+  const renderHazardSection = (title: string, list: ILeadPaintHazard[]): React.ReactNode => {
+    if (list.length === 0) return null;
+    return (
+      <Stack className={styles.section} tokens={{ childrenGap: 12 }}>
+        <Text variant="large" className={styles.sectionTitle}>
+          {title}
+        </Text>
+        {list.map((h, idx) => (
+          <div key={idx} className={styles.hazardCard}>
+            <Text block className={styles.hazardDescription}>
+              {h.hazardDescription}
+            </Text>
+            <Stack horizontal tokens={{ childrenGap: 16 }} style={{ marginTop: 8, flexWrap: "wrap" }}>
+              <span className={styles.hazardMeta}>
+                <strong>Severity:</strong> {h.severity}
+              </span>
+              <span className={styles.hazardMeta}>
+                <strong>Priority:</strong> {h.priority}
+              </span>
+            </Stack>
+            <Stack tokens={{ childrenGap: 4 }} style={{ marginTop: 8 }}>
+              <Text variant="small" block>
+                <strong>Proposed abatement (from reference):</strong> {h.abatementOptions}
+              </Text>
+              <Text variant="small" block>
+                <strong>Proposed interim control (from reference):</strong> {h.interimControlOptions}
+              </Text>
+            </Stack>
+          </div>
+        ))}
+      </Stack>
+    );
+  };
+
+  return (
+    <Stack tokens={{ childrenGap: 24 }}>
+      {renderHazardSection("Individual Common Area Paint Hazards", commonAreaHazards)}
+      {renderHazardSection("Individual Dwelling Unit Paint Hazards", unitHazards)}
     </Stack>
   );
 };
@@ -370,56 +442,107 @@ export const ResultsSummary: React.FC<IResultsSummaryProps> = ({
   const hasCommonArea = summary.commonAreaSummary && summary.commonAreaSummary.totalReadings > 0;
   const hasUnits = summary.unitsSummary && summary.unitsSummary.totalReadings > 0;
   const hasReadings = readings && readings.length > 0;
+  const commonAreaReadings = (readings || []).filter((r) => r.areaType === "Common Areas");
+  const unitReadings = (readings || []).filter((r) => r.areaType === "Units" || !r.areaType);
+
+  const addSheetsForDataset = (
+    workbook: XLSX.WorkBook,
+    datasetSummary: IDatasetSummary,
+    prefix: string
+  ): void => {
+    const addSheet = (data: Record<string, unknown>[], sheetName: string): void => {
+      if (data.length > 0) {
+        const ws = XLSX.utils.json_to_sheet(data);
+        XLSX.utils.book_append_sheet(workbook, ws, sheetName);
+      }
+    };
+    if (datasetSummary.averageComponents.length > 0) {
+      addSheet(
+        datasetSummary.averageComponents.map(c => ({
+          "Component": c.component,
+          "Substrate": c.substrate || "",
+          "Result": c.result,
+          "Positive %": `${c.positivePercent}%`,
+          "Negative %": `${c.negativePercent}%`,
+          "Pos Count": c.positiveCount,
+          "Neg Count": c.negativeCount,
+          "Total Readings": c.totalReadings
+        })),
+        `${prefix} - Average`
+      );
+    }
+    if (datasetSummary.uniformComponents.length > 0) {
+      addSheet(
+        datasetSummary.uniformComponents.map(c => ({
+          "Component": c.component,
+          "Substrate": c.substrate || "",
+          "Result": c.result,
+          "Total Readings": c.totalReadings
+        })),
+        `${prefix} - Uniform`
+      );
+    }
+    if (datasetSummary.nonUniformComponents.length > 0) {
+      addSheet(
+        datasetSummary.nonUniformComponents.map(c => ({
+          "Component": c.component,
+          "Substrate": c.substrate || "",
+          "Positive Count": c.positiveCount,
+          "Negative Count": c.negativeCount,
+          "Positive %": `${c.positivePercent}%`,
+          "Total Readings": c.totalReadings
+        })),
+        `${prefix} - Non-Uniform`
+      );
+    }
+  };
 
   const handleExportExcel = (): void => {
     const workbook = XLSX.utils.book_new();
-    const activeSummary = hasUnits ? summary.unitsSummary : summary.commonAreaSummary;
-    
-    if (!activeSummary) return;
-
-    // 1. Average Components Sheet
-    if (activeSummary.averageComponents.length > 0) {
-      const avgData = activeSummary.averageComponents.map(c => ({
-        "Component": c.component,
-        "Substrate": c.substrate || "",
-        "Result": c.result,
-        "Positive %": `${c.positivePercent}%`,
-        "Negative %": `${c.negativePercent}%`,
-        "Pos Count": c.positiveCount,
-        "Neg Count": c.negativeCount,
-        "Total Readings": c.totalReadings
-      }));
-      const ws = XLSX.utils.json_to_sheet(avgData);
-      XLSX.utils.book_append_sheet(workbook, ws, "Average Components");
+    if (hasCommonArea && summary.commonAreaSummary) {
+      addSheetsForDataset(workbook, summary.commonAreaSummary, "Common Areas");
     }
-
-    // 2. Uniform Components Sheet
-    if (activeSummary.uniformComponents.length > 0) {
-      const uniData = activeSummary.uniformComponents.map(c => ({
-        "Component": c.component,
-        "Substrate": c.substrate || "",
-        "Result": c.result,
-        "Total Readings": c.totalReadings
-      }));
-      const ws = XLSX.utils.json_to_sheet(uniData);
-      XLSX.utils.book_append_sheet(workbook, ws, "Uniform Components");
+    if (hasUnits && summary.unitsSummary) {
+      addSheetsForDataset(workbook, summary.unitsSummary, "Units");
     }
-
-    // 3. Non-Uniform Components Sheet
-    if (activeSummary.nonUniformComponents.length > 0) {
-      const nonData = activeSummary.nonUniformComponents.map(c => ({
-        "Component": c.component,
-        "Substrate": c.substrate || "",
-        "Positive Count": c.positiveCount,
-        "Negative Count": c.negativeCount,
-        "Positive %": `${c.positivePercent}%`,
-        "Total Readings": c.totalReadings
+    if (summary.hazards && summary.hazards.length > 0) {
+      const hazardData = summary.hazards.map((h) => ({
+        "Identified Hazard": h.hazardDescription,
+        "Severity": h.severity,
+        "Priority": h.priority,
+        "Proposed Abatement": h.abatementOptions,
+        "Proposed Interim Control": h.interimControlOptions,
+        "Component": h.component,
+        "Substrate": h.substrate || "",
+        "Area": h.areaType === "COMMON_AREA" ? "Common Areas" : "Units",
       }));
-      const ws = XLSX.utils.json_to_sheet(nonData);
-      XLSX.utils.book_append_sheet(workbook, ws, "Non-Uniform Components");
+      const ws = XLSX.utils.json_to_sheet(hazardData);
+      XLSX.utils.book_append_sheet(workbook, ws, "Hazards");
     }
-
-    const filename = `XRF_Summary_${summary.jobNumber}_${new Date().toISOString().split('T')[0]}.xlsx`;
+    const allShotsRow = (r: IXrfReading): Record<string, unknown> => ({
+      "Reading #": (r as { rawRow?: { originalReadingId?: string } }).rawRow?.originalReadingId || r.readingId,
+      "Component (Raw)": r.component,
+      "Component (Normalized)": r.normalizedComponent || r.component,
+      "Substrate (Raw)": r.substrate || "",
+      "Substrate (Normalized)": r.normalizedSubstrate || r.substrate || "",
+      "Unit #": r.unitNumber || "",
+      "Room Type": r.roomType || "",
+      "Room #": r.roomNumber || "",
+      "Side": r.side || "",
+      "Color": r.color,
+      "PbC (mg/cm²)": r.leadContent,
+      "Result": r.isPositive ? "POSITIVE" : "Negative",
+    });
+    if (commonAreaReadings.length > 0) {
+      const ws = XLSX.utils.json_to_sheet(commonAreaReadings.map(allShotsRow));
+      XLSX.utils.book_append_sheet(workbook, ws, "All Shots - Common Areas");
+    }
+    if (unitReadings.length > 0) {
+      const ws = XLSX.utils.json_to_sheet(unitReadings.map(allShotsRow));
+      XLSX.utils.book_append_sheet(workbook, ws, "All Shots - Units");
+    }
+    if (!hasCommonArea && !hasUnits && (!summary.hazards || summary.hazards.length === 0) && !hasReadings) return;
+    const filename = `XRF_Summary_${summary.jobNumber}_${new Date().toISOString().split("T")[0]}.xlsx`;
     XLSX.writeFile(workbook, filename);
   };
 
@@ -431,10 +554,10 @@ export const ResultsSummary: React.FC<IResultsSummaryProps> = ({
           <Text variant="xLarge" className={styles.jobTitle}>
             Job: {summary.jobNumber}
           </Text>
-          <PrimaryButton 
-            text="Export All to Excel" 
-            iconProps={{ iconName: "ExcelDocument" }} 
-            onClick={handleExportExcel} 
+          <PrimaryButton
+            text="Export All to Excel"
+            iconProps={{ iconName: "ExcelDocument" }}
+            onClick={handleExportExcel}
           />
         </Stack>
         <Stack horizontal tokens={{ childrenGap: 16 }} className={styles.metadata}>
@@ -455,53 +578,80 @@ export const ResultsSummary: React.FC<IResultsSummaryProps> = ({
         </Stack>
       </Stack>
 
-      {/* Content */}
-      {!hasCommonArea && !hasUnits ? (
-        <MessageBar messageBarType={MessageBarType.warning}>
-          No data available in this summary.
-        </MessageBar>
-      ) : (
-        <Pivot className={styles.pivot}>
-          {hasCommonArea && (
-            <PivotItem
-              headerText="Common Areas"
-              itemIcon="Home"
-              itemCount={summary.commonAreaSummary!.totalReadings}
-            >
-              <DatasetSummaryView
-                summary={summary.commonAreaSummary!}
-                onViewReadings={onViewReadings}
-              />
-            </PivotItem>
-          )}
-          {hasUnits && (
-            <PivotItem
-              headerText="Units"
-              itemIcon="Org"
-              itemCount={summary.unitsSummary!.totalReadings}
-            >
-              <DatasetSummaryView
-                summary={summary.unitsSummary!}
-                onViewReadings={onViewReadings}
-              />
-            </PivotItem>
-          )}
-          {/* All Shots Report Tab */}
-          {hasReadings && (
-            <PivotItem
-              headerText="All Shots"
-              itemIcon="BulletedList"
-              itemCount={readings.length}
-            >
-              <AllShotsReport
-                readings={readings}
-                areaType={areaType || (hasCommonArea ? "Common Areas" : "Units")}
-                jobNumber={summary.jobNumber}
-              />
-            </PivotItem>
-          )}
-        </Pivot>
-      )}
+      {/* Content - always show both Units and Common Areas; each tab has Averaged/Uniform/Conflicting + All Shots */}
+      <Pivot className={styles.pivot}>
+        <PivotItem
+          headerText="Common Areas"
+          itemIcon="Home"
+          itemCount={summary.commonAreaSummary ? summary.commonAreaSummary.totalReadings : 0}
+        >
+          <Stack tokens={{ childrenGap: 24 }}>
+            <DatasetSummaryView
+              summary={summary.commonAreaSummary!}
+              onViewReadings={onViewReadings}
+            />
+            <Stack className={styles.section} tokens={{ childrenGap: 12 }}>
+              <Text variant="large" className={styles.sectionTitle}>
+                All Shots — Common Areas
+              </Text>
+              <Text className={styles.sectionSubtitle}>
+                {commonAreaReadings.length} reading(s)
+              </Text>
+              {commonAreaReadings.length > 0 ? (
+                <AllShotsReport
+                  readings={commonAreaReadings}
+                  areaType="Common Areas"
+                  jobNumber={summary.jobNumber}
+                />
+              ) : (
+                <MessageBar messageBarType={MessageBarType.info}>
+                  No Common Areas shots. Upload data for this type to see readings here.
+                </MessageBar>
+              )}
+            </Stack>
+          </Stack>
+        </PivotItem>
+        <PivotItem
+          headerText="Units"
+          itemIcon="Org"
+          itemCount={summary.unitsSummary ? summary.unitsSummary.totalReadings : 0}
+        >
+          <Stack tokens={{ childrenGap: 24 }}>
+            <DatasetSummaryView
+              summary={summary.unitsSummary!}
+              onViewReadings={onViewReadings}
+            />
+            <Stack className={styles.section} tokens={{ childrenGap: 12 }}>
+              <Text variant="large" className={styles.sectionTitle}>
+                All Shots — Units
+              </Text>
+              <Text className={styles.sectionSubtitle}>
+                {unitReadings.length} reading(s)
+              </Text>
+              {unitReadings.length > 0 ? (
+                <AllShotsReport
+                  readings={unitReadings}
+                  areaType="Units"
+                  jobNumber={summary.jobNumber}
+                />
+              ) : (
+                <MessageBar messageBarType={MessageBarType.info}>
+                  No Units shots. Upload data for this type to see readings here.
+                </MessageBar>
+              )}
+            </Stack>
+          </Stack>
+        </PivotItem>
+        {summary.hazards && summary.hazards.length > 0 && (
+          <PivotItem
+            headerText="Hazards"
+            itemIcon="Warning"
+            itemCount={summary.hazards.length}
+          >
+            <HazardsView hazards={summary.hazards} />
+          </PivotItem>
+        )}
+      </Pivot>
     </Stack>
   );
 };

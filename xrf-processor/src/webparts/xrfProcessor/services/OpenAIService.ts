@@ -155,6 +155,84 @@ Return ONLY the JSON object, no other text.`;
   }
 
   /**
+   * Generate a short conversational message for a given step in the upload flow.
+   * Used to guide the user with friendly, contextual prompts (e.g. "Hey Sarah, what's the job number?").
+   * Falls back to a template message if OpenAI is not configured or the request fails.
+   */
+  async generateConversationStepMessage(
+    stepId: "welcome" | "job_number" | "job_result" | "area_type" | "file_upload" | "ready",
+    context: {
+      userName?: string;
+      jobNumber?: string;
+      jobFound?: boolean;
+      hasExistingData?: boolean;
+      hasUnits?: boolean;
+      hasCommonAreas?: boolean;
+      areaType?: "Units" | "Common Areas";
+    }
+  ): Promise<string> {
+    const fallbacks: Record<typeof stepId, string> = {
+      welcome:
+        "Enter the job number below and we'll look it up in ETC Files. Or skip for a temporary test run.",
+      job_number:
+        "Enter the job number below and we'll look it up in ETC Files. Or skip for a temporary test run.",
+      job_result: "What would you like to do next?",
+      area_type: "Are you uploading Units or Common Areas?",
+      file_upload:
+        "Upload one or many files with the raw data. You can select multiple .xlsx or .csv files.",
+      ready: "Ready to process? Click the button below to upload and save.",
+    };
+
+    if (!this.isConfigured()) {
+      const name = context.userName ? `Hey ${context.userName}, ` : "";
+      if (stepId === "welcome" || stepId === "job_number") {
+        return `${name}${fallbacks.welcome}`;
+      }
+      return fallbacks[stepId];
+    }
+
+    const systemPrompt = `You are a friendly assistant for an XRF lead paint data upload app. Generate exactly one short message (1-2 sentences) to guide the user for the current step. Be warm and conversational. Use the user's name if provided. Do not use quotes around your response. Do not add greetings like "Here's your message:" or bullet points. Output only the message.`;
+
+    const contextStr = JSON.stringify({
+      step: stepId,
+      userName: context.userName,
+      jobNumber: context.jobNumber,
+      jobFound: context.jobFound,
+      hasExistingData: context.hasExistingData,
+      hasUnits: context.hasUnits,
+      hasCommonAreas: context.hasCommonAreas,
+      areaType: context.areaType,
+    });
+
+    const userPrompt = `Step: ${stepId}. Context: ${contextStr}. Generate the single guiding message for the user.`;
+
+    try {
+      const message = await this.callChatCompletion(systemPrompt, userPrompt);
+      const trimmed = (message || "").trim();
+      if (trimmed.length > 0 && trimmed.length <= 300) return trimmed;
+    } catch (err) {
+      console.warn("generateConversationStepMessage failed, using fallback:", err);
+    }
+
+    const name = context.userName && (stepId === "welcome" || stepId === "job_number") ? `Hey ${context.userName}, ` : "";
+    if (stepId === "job_result" && context.hasExistingData) {
+      const parts: string[] = [];
+      if (context.hasUnits) parts.push("Units");
+      if (context.hasCommonAreas) parts.push("Common Areas");
+      const existing = parts.length > 0 ? `This job already has ${parts.join(" and ")} data. ` : "";
+      return `${existing}Generate a report from it or upload new data.`.trim();
+    }
+    if (stepId === "area_type" && context.hasExistingData) {
+      const parts: string[] = [];
+      if (context.hasUnits) parts.push("Units");
+      if (context.hasCommonAreas) parts.push("Common Areas");
+      const existing = parts.length > 0 ? ` You already have ${parts.join(" and ")} data for this job.` : "";
+      return `${existing} Are you uploading Units or Common Areas?`.trim();
+    }
+    return name + fallbacks[stepId];
+  }
+
+  /**
    * General chat completion for Q&A (used by help assistant)
    * @param systemPrompt - System prompt with context
    * @param userMessage - User's question

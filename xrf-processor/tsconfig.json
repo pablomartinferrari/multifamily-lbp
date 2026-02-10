@@ -10,6 +10,7 @@
     "sourceMap": true,
     "experimentalDecorators": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "outDir": "lib",
     "inlineSources": false,
     "noImplicitAny": true,

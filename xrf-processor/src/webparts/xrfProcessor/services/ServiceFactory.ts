@@ -1,16 +1,27 @@
 import { SPFI } from "@pnp/sp";
 import { SharePointService } from "./SharePointService";
+import { JobLookupService, setJobLookupService, type IJobLookupContext } from "./JobLookupService";
 
 let spInstance: SPFI | undefined = undefined;
 let sharePointService: SharePointService | undefined = undefined;
 
+/** SPFx context (web part or extension) for job lookup via Search API */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SPFxContext = any;
+
 /**
- * Initialize services with the PnP SP instance
- * Call this once from your web part's onInit
+ * Initialize services with the PnP SP instance and optional SPFx context.
+ * When context is provided, job lookup uses the SharePoint Search API (tenant-wide)
+ * so we avoid list view threshold when querying the ETC Files site.
+ * Call this once from your web part's onInit.
  */
-export function initializeServices(sp: SPFI): void {
+export function initializeServices(sp: SPFI, context?: SPFxContext): void {
   spInstance = sp;
   sharePointService = new SharePointService(sp);
+
+  if (context) {
+    setJobLookupService(new JobLookupService(context as IJobLookupContext));
+  }
 }
 
 /**

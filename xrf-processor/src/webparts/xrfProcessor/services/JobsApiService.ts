@@ -38,6 +38,7 @@ export class JobsApiService {
    * Look up a job by jobId. Matches the user-entered Job Number to the API's jobId.
    * Uses the list endpoint since the single-job endpoint is not available.
    */
+  // eslint-disable-next-line @rushstack/no-new-null -- API contract uses null for "not found"
   async getJobByJobId(jobIdInput: string): Promise<IJobsApiJob | null> {
     const trimmed = jobIdInput.trim();
     if (!trimmed) return null;

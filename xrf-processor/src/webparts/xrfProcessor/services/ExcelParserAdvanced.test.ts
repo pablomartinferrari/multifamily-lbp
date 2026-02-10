@@ -79,34 +79,35 @@ describe('ExcelParserService - Advanced Scenarios', () => {
   });
 
   it('should handle "Pos", "Neg", and "Assumed" result strings', async () => {
+    // Use Result as lead content column (no PbC, so Result gets mapped)
     const data = [
-      ['Reading', 'Component', 'Color', 'Result', 'PbC'],
-      ['1', 'Wall', 'White', 'Pos', ''],
-      ['2', 'Door', 'White', 'Neg', ''],
-      ['3', 'Window', 'White', 'Assumed', ''],
-      ['4', 'Floor', 'White', 'Assumed Positive', ''],
+      ['Reading', 'Component', 'Color', 'Result'],
+      ['1', 'Wall', 'White', 'Pos'],
+      ['2', 'Door', 'White', 'Neg'],
+      ['3', 'Window', 'White', 'Assumed'],
+      ['4', 'Floor', 'White', 'Assumed Positive'],
     ];
     const buffer = createExcelBuffer(data);
 
     const result = await service.parseFile(buffer);
 
+    expect(result.readings).toHaveLength(4);
     expect(result.readings[0].isPositive).toBe(true);  // Pos
     expect(result.readings[1].isPositive).toBe(false); // Neg
     expect(result.readings[2].isPositive).toBe(true);  // Assumed
     expect(result.readings[3].isPositive).toBe(true);  // Assumed Positive
   });
 
-  it('should label rows with missing components as "Unknown Component" if lead data exists', async () => {
+  it('should skip rows with missing components (treated as junk)', async () => {
     const data = [
       ['Reading', 'Component', 'Color', 'Result', 'PbC'],
-      ['10', '', 'White', 'Pos', '2.52'], // Missing component but has ID and PbC
+      ['10', '', 'White', 'Pos', '2.52'], // Missing component - row is skipped
     ];
     const buffer = createExcelBuffer(data);
 
     const result = await service.parseFile(buffer);
 
-    expect(result.readings).toHaveLength(1);
-    expect(result.readings[0].component).toBe('Unknown Component');
-    expect(result.warnings.some(w => w.includes('labeled as \'Unknown Component\''))).toBe(true);
+    // Parser skips rows without component per "if there's no component, ignore the row"
+    expect(result.readings).toHaveLength(0);
   });
 });

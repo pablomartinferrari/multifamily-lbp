@@ -1,8 +1,17 @@
 import { IXrfReading } from "./IXrfReading";
 
 // ============================================
-// CONSTANTS
+// CONSTANTS & CLASSIFICATION RULES
 // ============================================
+//
+// Report sections (per data type: Units, Common Areas):
+// - Averaged:   Component + substrate with ≥ STATISTICAL_SAMPLE_SIZE readings.
+//               Result = POSITIVE if positive % > POSITIVE_PERCENT_THRESHOLD %, else NEGATIVE.
+// - Uniform:    Component + substrate with < STATISTICAL_SAMPLE_SIZE readings, all same result.
+// - Conflicting (non-uniform): Component + substrate with < STATISTICAL_SAMPLE_SIZE readings,
+//               mixed positive/negative; requires location-specific review.
+// All three sections are always shown in the report (empty when no shots apply).
+//
 
 /** Readings needed for statistical (average) sampling method */
 export const STATISTICAL_SAMPLE_SIZE = 40;
@@ -82,6 +91,32 @@ export interface IDatasetSummary {
 }
 
 /**
+ * Lead paint hazard with remediation options (from Lead Inspector AI)
+ */
+export interface ILeadPaintHazard {
+  /** Human-readable hazard description */
+  hazardDescription: string;
+  /** Severity: Critical, High, Moderate */
+  severity: "Critical" | "High" | "Moderate";
+  /** Priority: Restrict Access, ASAP, Schedule */
+  priority: "Restrict Access" | "ASAP" | "Schedule";
+  /** Abatement option code (e.g., "d", "h") - looked up to full text */
+  abateCode: string;
+  /** Interim control option code (e.g., "5", "4") - looked up to full text */
+  icCode: string;
+  /** Full abatement text from Haz reference */
+  abatementOptions: string;
+  /** Full interim control text from Haz reference */
+  interimControlOptions: string;
+  /** Source component for this hazard */
+  component: string;
+  /** Source substrate (if any) */
+  substrate?: string;
+  /** COMMON_AREA or UNITS */
+  areaType: "COMMON_AREA" | "UNITS";
+}
+
+/**
  * Complete job summary containing both datasets
  */
 export interface IJobSummary {
@@ -94,6 +129,8 @@ export interface IJobSummary {
   commonAreaSummary: IDatasetSummary | undefined;
   /** Summary for individual units/apartments */
   unitsSummary: IDatasetSummary | undefined;
+  /** Lead paint hazards with remediation options (from Lead Inspector AI) */
+  hazards?: ILeadPaintHazard[];
 }
 
 /**

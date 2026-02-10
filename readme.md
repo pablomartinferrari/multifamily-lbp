@@ -3,7 +3,7 @@
 A SharePoint Framework (SPFx) web part for processing XRF lead paint inspection data with AI-powered component normalization and HUD/EPA compliant reporting.
 
 ![SharePoint Framework](https://img.shields.io/badge/SPFx-1.20.0-green.svg)
-![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 
 ## 🎯 Overview
@@ -18,8 +18,9 @@ The XRF Lead Paint Processor helps property managers and lead paint inspectors:
 ## ✨ Features
 
 ### Core Functionality
-- 📤 **File Upload** - Drag-and-drop Excel/CSV files with automatic column detection
+- 📤 **Job Dashboard** - Upload Units and Common Areas files independently per job; generate reports when ready
 - 🤖 **AI Normalization** - Intelligent grouping of component variants (e.g., "dr jamb" → "Door Jamb")
+- ⚠️ **Lead Inspector AI** - Hazard descriptions and remediation options for each positive component
 - 📊 **Smart Grouping** - Aggregates readings by Component + Substrate combinations
 - 📋 **Three Summary Categories**:
   - **Average Components** (≥40 readings) - Statistical 2.5% threshold
@@ -29,11 +30,11 @@ The XRF Lead Paint Processor helps property managers and lead paint inspectors:
 ### Data Management
 - ✏️ **Inline Editing** - Edit readings directly in the data grid
 - 📝 **Bulk Edit** - Change multiple readings at once
-- 🔄 **Merge/Replace** - Add new data to existing jobs or replace entirely
-- 📥 **Load Existing Data** - Retrieve previously uploaded data without re-uploading
+- 🔄 **Merge/Replace** - Add new data to existing jobs or replace when upload conflicts occur
+- 🔁 **Regenerate Report** - Generate report from existing data without re-uploading
 
 ### Export & Reporting
-- 📑 **Excel Export** - Multi-sheet workbooks with all summary categories
+- 📑 **Excel Export** - Multi-sheet workbooks with Units, Common Areas, Hazards, and All Shots
 - 📄 **CSV Export** - Simple format for external tools
 - 🔍 **All Shots Report** - Searchable list of every individual reading
 
@@ -75,6 +76,8 @@ multifamily-lbp/
 | `SummaryService` | HUD/EPA compliant classification and aggregation |
 | `SharePointService` | CRUD operations for all SharePoint lists |
 | `OpenAIService` | OpenAI/Azure OpenAI API integration |
+| `LeadInspectorService` | AI hazard descriptions and remediation options |
+| `HazReference` | Abatement and interim control lookup (HUD/EPA) |
 
 ## 📋 Prerequisites
 
@@ -198,11 +201,11 @@ export const LIBRARIES = {
 
 ### Basic Workflow
 
-1. **Upload File** - Select Excel/CSV file, enter Job Number and Area Type
-2. **AI Processing** - System normalizes component and substrate names
-3. **Review Data** - Check readings, make edits if needed
-4. **Generate Summary** - Create HUD/EPA compliant report
-5. **Export** - Download Excel/CSV for records
+1. **Job Dashboard** - Enter Job Number; upload Units and/or Common Areas files (separately)
+2. **Generate Report** - When ready, click Generate Report to process all uploaded data (or regenerate from existing)
+3. **Review Data** - Check readings and AI normalizations, make edits if needed
+4. **Generate Summary** - Create HUD/EPA compliant report with hazards
+5. **Export** - Download Excel (Units, Common Areas, Hazards, All Shots) or CSV
 
 ### HUD/EPA Classification Rules
 
@@ -261,20 +264,22 @@ npm run test:watch
 xrf-processor/src/webparts/xrfProcessor/
 ├── components/
 │   ├── XrfProcessor.tsx          # Main orchestrator
-│   ├── FileUpload/               # File upload UI
+│   ├── JobDashboard/             # Job selection, upload, generate report
 │   ├── DataReviewGrid/           # Reading editor
-│   ├── ResultsSummary/           # Summary display
+│   ├── ResultsSummary/           # Summary display (Units, Common Areas, Hazards)
 │   ├── AllShotsReport/           # All readings list
 │   ├── AINormalizationReview/    # Normalization review
-│   ├── UploadConflictDialog/     # Merge/Replace dialog
+│   ├── UploadConflictDialog/     # Merge/Replace on upload conflict
 │   └── HelpChatPanel/            # AI help assistant
 ├── services/
-│   ├── ExcelParserService.ts     # File parsing
+│   ├── ExcelParserService.ts     # File parsing (header auto-detect)
 │   ├── SharePointService.ts      # SharePoint CRUD
 │   ├── SummaryService.ts         # HUD/EPA logic
 │   ├── ComponentNormalizerService.ts
 │   ├── SubstrateNormalizerService.ts
-│   └── OpenAIService.ts          # AI integration
+│   ├── OpenAIService.ts          # AI integration
+│   ├── LeadInspectorService.ts   # Hazard AI
+│   └── HazReference.ts           # Abatement/IC lookup
 ├── models/                        # TypeScript interfaces
 ├── config/                        # OpenAI prompts, help context
 └── constants/                     # SharePoint list names
@@ -315,6 +320,10 @@ xrf-processor/src/webparts/xrfProcessor/
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.5.1 | Feb 2026 | Documentation and AI help context updated for current workflow |
+| 1.5.0 | Feb 2026 | Lead Inspector AI hazards, JobDashboard, decoupled upload/report flow |
+| 1.4.0 | Jan 2026 | Dynamic header detection, Pb200i/Viken format support |
+| 1.3.0 | Jan 2026 | Jobs API, combined Units + Common Areas reports |
 | 1.2.0 | Jan 2026 | Substrate normalization, CSV support, AI help assistant |
 | 1.1.0 | Dec 2025 | Component normalization, caching, merge/replace |
 | 1.0.0 | Nov 2025 | Initial release |
